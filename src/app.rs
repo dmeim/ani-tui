@@ -111,7 +111,7 @@ impl App {
             play_error: None,
             setup_step: 0,
             setup_selected: 0,
-            active_modal: if start_with_search { Some(ModalKind::Search) } else { None },
+            active_modal: None,
             settings_cursor: 0,
             settings_editing: false,
             settings_option_cursor: 0,
@@ -371,7 +371,15 @@ impl App {
     fn handle_editing_key(&mut self, code: KeyCode) -> Option<Action> {
         match code {
             KeyCode::Esc => {
-                self.input_mode = InputMode::Normal;
+                if self.search_results.is_empty() {
+                    self.should_quit = true;
+                } else {
+                    self.input_mode = InputMode::Normal;
+                }
+                None
+            }
+            KeyCode::Tab => {
+                self.open_settings_modal();
                 None
             }
             KeyCode::Char(c) => {

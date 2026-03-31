@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Layout},
+    layout::{Alignment, Constraint, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
@@ -17,33 +17,157 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
 }
 
+const BANNER: &[&str] = &[
+    "                      ###           ###               ###",
+    "                                    ###                  ",
+    " #######   #########  ###        ######### ###    ### ###",
+    "      ###  ###    ### ### ######    ###    ###    ### ###",
+    " ########  ###    ### ###           ###    ###    ### ###",
+    "###   ###  ###    ### ###           ###    ###   #### ###",
+    " #########  ###    ### ###            #####  ###### ## ###",
+];
+
 fn render_empty(frame: &mut Frame, app: &App) {
-    let chunks = Layout::vertical([
-        Constraint::Length(3),  // title
-        Constraint::Min(1),    // empty space
-        Constraint::Length(1), // status bar
+    let on_style = Style::default().bg(Color::Cyan);
+    let off_style = Style::default();
+
+    let banner_lines: Vec<Line> = BANNER
+        .iter()
+        .map(|line| {
+            // Group consecutive same-type characters into spans
+            let mut spans: Vec<Span> = Vec::new();
+            let mut current = String::new();
+            let mut current_is_block = false;
+
+            for ch in line.chars() {
+                let is_block = ch == '#' || ch == '.';
+                if !current.is_empty() && is_block != current_is_block {
+                    let style = if current_is_block { on_style } else { off_style };
+                    spans.push(Span::styled(
+                        current.replace(|c: char| c == '#' || c == '.', " "),
+                        style,
+                    ));
+                    current = String::new();
+                }
+                current_is_block = is_block;
+                current.push(ch);
+            }
+            if !current.is_empty() {
+                let style = if current_is_block { on_style } else { off_style };
+                spans.push(Span::styled(
+                    current.replace(|c: char| c == '#' || c == '.', " "),
+                    style,
+                ));
+            }
+
+            Line::from(spans)
+        })
+        .collect();
+    let banner_height = banner_lines.len() as u16;
+
+    // 60% banner area, 40% search area
+    let main = Layout::vertical([
+        Constraint::Percentage(60),
+        Constraint::Percentage(40),
     ])
     .split(frame.area());
 
-    let title = Paragraph::new(" ani-tui")
-        .style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .block(Block::default().borders(Borders::BOTTOM));
-    frame.render_widget(title, chunks[0]);
+    // Vertically center the banner within the top 60%
+    let banner = Paragraph::new(banner_lines).alignment(Alignment::Center);
+    let top = main[0];
+    if top.height > banner_height {
+        let pad = (top.height - banner_height) / 2;
+        let inner = Layout::vertical([
+            Constraint::Length(pad),
+            Constraint::Length(banner_height),
+            Constraint::Min(0),
+        ])
+        .split(top);
+        frame.render_widget(banner, inner[1]);
+    } else {
+        frame.render_widget(banner, top);
+    }
 
+    // Bottom 40%: vertically center the search bar + hints
+    let bottom = main[1];
+    let search_block_height = 5; // 3 for input box + 1 gap + 1 hints
+    let search_inner = if bottom.height > search_block_height {
+        let pad = (bottom.height - search_block_height) / 2;
+        Layout::vertical([
+            Constraint::Length(pad),
+            Constraint::Length(search_block_height),
+            Constraint::Min(0),
+        ])
+        .split(bottom)[1]
+    } else {
+        bottom
+    };
+
+    // Horizontally center the search bar (50% width)
+    let search_cols = Layout::horizontal([
+        Constraint::Percentage(25),
+        Constraint::Percentage(50),
+        Constraint::Percentage(25),
+    ])
+    .split(search_inner);
+
+    let search_area = Layout::vertical([
+        Constraint::Length(3), // input box
+        Constraint::Length(1), // gap
+        Constraint::Length(1), // keybind hints
+    ])
+    .split(search_cols[1]);
+
+    // Search input
+    let input_title = if app.search_loading {
+        " Searching... "
+    } else {
+        " Search "
+    };
+    let input = Paragraph::new(app.search_input.as_str())
+        .style(Style::default().fg(Color::Yellow))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(input_title)
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
+    frame.render_widget(input, search_area[0]);
+
+    // Cursor
+    if app.input_mode == crate::app::InputMode::Editing && app.active_modal.is_none() {
+        frame.set_cursor_position((
+            search_area[0].x + app.cursor_position as u16 + 1,
+            search_area[0].y + 1,
+        ));
+    }
+
+    // Loading spinner or error
+    if app.search_loading {
+        let spinner = SPINNER[app.tick_count % SPINNER.len()];
+        let loading = Paragraph::new(format!(" {spinner} Searching..."))
+            .style(Style::default().fg(Color::Yellow));
+        frame.render_widget(loading, search_area[1]);
+    } else if let Some(ref err) = app.search_error {
+        let error = Paragraph::new(format!(" Error: {err}"))
+            .style(Style::default().fg(Color::Red));
+        frame.render_widget(error, search_area[1]);
+    }
+
+    // Keybind hints
     if app.active_modal.is_none() {
-        let status = Line::from(vec![
-            Span::styled(" s", Style::default().fg(Color::Yellow)),
+        let hints = Line::from(vec![
+            Span::styled("Enter", Style::default().fg(Color::Yellow)),
             Span::raw(" search  "),
-            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::styled("Tab", Style::default().fg(Color::Yellow)),
             Span::raw(" settings  "),
-            Span::styled("q", Style::default().fg(Color::Yellow)),
+            Span::styled("Esc", Style::default().fg(Color::Yellow)),
             Span::raw(" quit"),
         ]);
-        frame.render_widget(Paragraph::new(status), chunks[2]);
+        frame.render_widget(
+            Paragraph::new(hints).alignment(Alignment::Center),
+            search_area[2],
+        );
     }
 }
 

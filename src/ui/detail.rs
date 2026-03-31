@@ -203,6 +203,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
 
     // Episode detail (right column)
+    // Inner width = area width minus 2 for block borders
+    let detail_inner_width = episode_chunks[1].width.saturating_sub(2) as usize;
+
     let detail_content = if let Some(ep) = app.episodes.get(app.selected_episode) {
         let num = if ep.number == ep.number.floor() {
             format!("{}", ep.number as i32)
@@ -212,25 +215,49 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
         let mut lines: Vec<Line> = Vec::new();
 
-        // Episode heading
+        // Episode heading with aired date right-aligned on the same line
         let heading = match &ep.title {
             Some(t) => format!("Episode {num}: {t}"),
             None => format!("Episode {num}"),
         };
-        lines.push(Line::from(Span::styled(
-            heading,
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(""));
 
-        // Aired date
         if let Some(ref aired) = ep.aired {
-            lines.push(Line::from(vec![
-                Span::styled("Aired: ", Style::default().fg(Color::DarkGray)),
-                Span::raw(aired.as_str()),
-            ]));
+            let aired_text = format!("Aired: {aired}");
+            let gap = detail_inner_width
+                .saturating_sub(heading.len())
+                .saturating_sub(aired_text.len());
+            if gap >= 2 {
+                // Fits on one line: heading + padding + aired
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        heading,
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" ".repeat(gap)),
+                    Span::styled(aired_text, Style::default().fg(Color::DarkGray)),
+                ]));
+            } else {
+                // Too narrow — fall back to separate lines
+                lines.push(Line::from(Span::styled(
+                    heading,
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )));
+                lines.push(Line::from(vec![
+                    Span::styled("Aired: ", Style::default().fg(Color::DarkGray)),
+                    Span::raw(aired.as_str()),
+                ]));
+            }
+        } else {
+            lines.push(Line::from(Span::styled(
+                heading,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )));
         }
 
         // Filler badge
@@ -241,9 +268,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             )));
         }
 
-        if ep.aired.is_some() || ep.is_filler {
-            lines.push(Line::from(""));
-        }
+        lines.push(Line::from(""));
 
         // Episode synopsis (from Jikan), fall back to anime synopsis
         if let Some(ref synopsis) = ep.synopsis {
