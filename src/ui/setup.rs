@@ -92,6 +92,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
 fn metadata_provider_options() -> (Vec<(&'static str, &'static str)>, String) {
     let items = vec![
+        ("Jikan (MAL)", "Free, no account needed, episode details + synopses"),
         ("AniList", "Free, no account needed, modern API"),
         ("AniDB", "Comprehensive database, requires client registration"),
     ];

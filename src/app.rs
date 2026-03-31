@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui_image::picker::Picker;
@@ -49,6 +49,8 @@ pub struct App {
     pub episodes: Vec<Episode>,
     pub selected_episode: usize,
     pub detail_scroll: u16,
+    pub mal_id: Option<i64>,
+    pub synopsis_requested: HashSet<i32>, // episode numbers we've already requested
 
     // Playing state
     pub streams: Vec<StreamUrl>,
@@ -96,6 +98,8 @@ impl App {
             episodes: Vec::new(),
             selected_episode: 0,
             detail_scroll: 0,
+            mal_id: None,
+            synopsis_requested: HashSet::new(),
             streams: Vec::new(),
             now_playing_title: None,
             now_playing_episode: None,
@@ -127,6 +131,27 @@ impl App {
         }
         self.poster_loading = Some(anime.id.clone());
         Some(Action::LoadPoster(anime.id.clone(), url.clone()))
+    }
+
+    /// If the currently selected episode has no synopsis and we have a MAL ID,
+    /// return an action to fetch it from Jikan.
+    fn maybe_load_episode_synopsis(&mut self) -> Option<Action> {
+        let mal_id = self.mal_id?;
+        let ep = self.episodes.get(self.selected_episode)?;
+        if ep.synopsis.is_some() {
+            return None;
+        }
+        let ep_num = ep.number;
+        // Only fetch for integer episode numbers (Jikan doesn't support fractional)
+        if ep_num != ep_num.floor() {
+            return None;
+        }
+        let ep_int = ep_num as i32;
+        // Don't re-fetch episodes we've already requested
+        if !self.synopsis_requested.insert(ep_int) {
+            return None;
+        }
+        Some(Action::FetchEpisodeSynopsis(mal_id, ep_int))
     }
 
     pub fn mode_str(&self) -> &str {
@@ -178,6 +203,42 @@ impl App {
             }
             Action::EpisodesLoaded(eps) => {
                 self.episodes = eps;
+                None
+            }
+            Action::SetMalId(id) => {
+                self.mal_id = Some(id);
+                // Now that we have the MAL ID, try to load synopsis for the current episode
+                self.maybe_load_episode_synopsis()
+            }
+            Action::EpisodeDetailsLoaded(details) => {
+                // Merge Jikan episode details into existing episodes by number
+                for ep in &mut self.episodes {
+                    if let Some(detail) = details.iter().find(|d| {
+                        (d.number - ep.number).abs() < 0.01
+                    }) {
+                        if ep.title.is_none() {
+                            ep.title = detail.title.clone();
+                        }
+                        if ep.synopsis.is_none() {
+                            ep.synopsis = detail.synopsis.clone();
+                        }
+                        if !ep.is_filler && detail.is_filler {
+                            ep.is_filler = detail.is_filler;
+                        }
+                        if ep.aired.is_none() {
+                            ep.aired = detail.aired.clone();
+                        }
+                    }
+                }
+                // Trigger synopsis load for the currently selected episode
+                self.maybe_load_episode_synopsis()
+            }
+            Action::EpisodeSynopsisLoaded(ep_num, synopsis) => {
+                if let Some(ep) = self.episodes.iter_mut().find(|e| {
+                    (e.number - ep_num).abs() < 0.01
+                }) {
+                    ep.synopsis = Some(synopsis);
+                }
                 None
             }
 
@@ -356,11 +417,11 @@ impl App {
                 if !self.episodes.is_empty() {
                     self.selected_episode = (self.selected_episode + 1).min(self.episodes.len() - 1);
                 }
-                None
+                self.maybe_load_episode_synopsis()
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 self.selected_episode = self.selected_episode.saturating_sub(1);
-                None
+                self.maybe_load_episode_synopsis()
             }
             KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => {
                 if !self.episodes.is_empty() {
@@ -477,7 +538,7 @@ impl App {
     /// How many options does a given setting row have?
     fn settings_option_count(&self, row: usize) -> usize {
         match row {
-            0 => 2, // metadata provider: AniList, AniDB
+            0 => 3, // metadata provider: Jikan, AniList, AniDB
             1 => crate::player::detect_installed().len() + 1, // players + Custom
             2 => 2, // audio: Sub, Dub
             _ => 1,
@@ -488,8 +549,9 @@ impl App {
     fn current_option_index(&self, row: usize) -> usize {
         match row {
             0 => match self.config.general.metadata_provider {
-                MetadataProvider::Anilist => 0,
-                MetadataProvider::Anidb => 1,
+                MetadataProvider::Jikan => 0,
+                MetadataProvider::Anilist => 1,
+                MetadataProvider::Anidb => 2,
             },
             1 => {
                 let detected = crate::player::detect_installed();
@@ -510,7 +572,8 @@ impl App {
         match row {
             0 => {
                 self.config.general.metadata_provider = match option {
-                    0 => MetadataProvider::Anilist,
+                    0 => MetadataProvider::Jikan,
+                    1 => MetadataProvider::Anilist,
                     _ => MetadataProvider::Anidb,
                 };
             }
@@ -536,7 +599,7 @@ impl App {
 
     fn handle_setup_normal(&mut self, code: KeyCode) -> Option<Action> {
         let max_items = match self.setup_step {
-            0 => 2, // metadata provider: anilist, anidb
+            0 => 3, // metadata provider: jikan, anilist, anidb
             1 => {   // players: detected count + custom
                 let detected = crate::player::detect_installed();
                 detected.len() + 1
@@ -584,7 +647,8 @@ impl App {
         match self.setup_step {
             0 => {
                 self.config.general.metadata_provider = match self.setup_selected {
-                    0 => MetadataProvider::Anilist,
+                    0 => MetadataProvider::Jikan,
+                    1 => MetadataProvider::Anilist,
                     _ => MetadataProvider::Anidb,
                 };
             }
@@ -618,6 +682,8 @@ impl App {
                 self.screen = Screen::Search;
                 self.selected_anime = None;
                 self.episodes.clear();
+                self.mal_id = None;
+                self.synopsis_requested.clear();
             }
             Screen::Search => {}
             Screen::Setup => {}

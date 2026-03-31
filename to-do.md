@@ -49,20 +49,27 @@
 - [x] Port ani-cli's `decrypt_allanime` character cipher to Rust
 - [x] Handle sub vs dub mode toggle
 
-### 3.2 AniList (Metadata Provider — Option A)
+### 3.2 Jikan/MAL (Metadata Provider — Default)
+- [x] `api/jikan.rs` — search by title (REST)
+- [x] `api/jikan.rs` — fetch detail by MAL ID (synopsis, cover image URL, genres, rating)
+- [x] `api/jikan.rs` — fetch episode details (title, synopsis, filler, aired date)
+- [x] Image download support
+- [x] Rate limit handling (3 req/sec)
+
+### 3.3 AniList (Metadata Provider — Option B)
 - [x] `api/anilist.rs` — search by title (GraphQL)
 - [x] `api/anilist.rs` — fetch detail by ID (synopsis, cover image URL, genres, rating, status)
 - [ ] `api/anilist.rs` — fetch episode info if available
 - [x] Image download + caching for posters
 
-### 3.3 AniDB (Metadata Provider — Option B)
+### 3.4 AniDB (Metadata Provider — Option C)
 - [ ] `api/anidb.rs` — download + parse `anime-titles.xml.gz` for local search
 - [ ] `api/anidb.rs` — fetch anime detail by AID (HTTP API, XML response)
 - [ ] `api/anidb.rs` — poster image URL extraction from XML
 - [ ] Respect 1 req / 2 sec rate limit
 - [ ] Client registration handling in config
 
-### 3.4 OpenSubtitles
+### 3.5 OpenSubtitles
 - [ ] `api/opensubtitles.rs` — search subtitles by title + episode
 - [ ] `api/opensubtitles.rs` — download subtitle file
 - [ ] JWT auth flow (login, token caching)

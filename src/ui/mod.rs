@@ -260,6 +260,7 @@ fn render_settings_modal(frame: &mut Frame, app: &mut App) {
 fn current_value_label(app: &App, row: usize) -> String {
     match row {
         0 => match app.config.general.metadata_provider {
+            crate::config::MetadataProvider::Jikan => "Jikan (MAL)".to_string(),
             crate::config::MetadataProvider::Anilist => "AniList".to_string(),
             crate::config::MetadataProvider::Anidb => "AniDB".to_string(),
         },
@@ -281,7 +282,7 @@ fn current_value_label(app: &App, row: usize) -> String {
 /// Get the list of option labels for a given setting row.
 fn setting_options(row: usize) -> Vec<String> {
     match row {
-        0 => vec!["AniList".to_string(), "AniDB".to_string()],
+        0 => vec!["Jikan (MAL)".to_string(), "AniList".to_string(), "AniDB".to_string()],
         1 => {
             let detected = crate::player::detect_installed();
             let mut opts: Vec<String> = detected

@@ -33,6 +33,10 @@ pub enum Action {
     SelectAnime(usize),
     AnimeDetail(Box<Anime>),
     EpisodesLoaded(Vec<Episode>),
+    EpisodeDetailsLoaded(Vec<Episode>),
+    SetMalId(i64),
+    FetchEpisodeSynopsis(i64, i32),     // (mal_id, episode_number)
+    EpisodeSynopsisLoaded(f32, String), // (episode_number, synopsis)
 
     // Playback flow
     SelectEpisode(usize),

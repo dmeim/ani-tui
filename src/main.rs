@@ -17,8 +17,9 @@ use tokio::sync::mpsc;
 use crate::action::Action;
 use crate::api::allanime::AllAnimeClient;
 use crate::api::anilist::AniListClient;
+use crate::api::jikan::JikanClient;
 use crate::app::App;
-use crate::config::Config;
+use crate::config::{Config, MetadataProvider};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -35,6 +36,7 @@ async fn main() -> Result<()> {
 
     let allanime = AllAnimeClient::new()?;
     let anilist = AniListClient::new();
+    let jikan = JikanClient::new();
 
     // Channel for async tasks to send actions back
     let (async_tx, mut async_rx) = mpsc::unbounded_channel::<Action>();
@@ -43,7 +45,7 @@ async fn main() -> Result<()> {
         // Check for async results (non-blocking)
         while let Ok(action) = async_rx.try_recv() {
             if let Some(follow_up) = app.handle_action(action) {
-                dispatch_action(follow_up, &app, &allanime, &anilist, &async_tx);
+                dispatch_action(follow_up, &app, &allanime, &anilist, &jikan, &async_tx);
             }
         }
 
@@ -62,7 +64,7 @@ async fn main() -> Result<()> {
         }
 
         if let Some(follow_up) = app.handle_action(action) {
-            dispatch_action(follow_up, &app, &allanime, &anilist, &async_tx);
+            dispatch_action(follow_up, &app, &allanime, &anilist, &jikan, &async_tx);
         }
 
         if app.should_quit {
@@ -81,30 +83,55 @@ fn dispatch_action(
     app: &App,
     allanime: &AllAnimeClient,
     anilist: &AniListClient,
+    jikan: &JikanClient,
     tx: &mpsc::UnboundedSender<Action>,
 ) {
     match action {
         Action::Search(query) => {
             let mode = app.mode_str().to_string();
+            let provider = app.config.general.metadata_provider;
             let allanime = allanime.clone();
             let anilist = anilist.clone();
+            let jikan = jikan.clone();
             let tx = tx.clone();
             tokio::spawn(async move {
                 let _ = tx.send(Action::SearchLoading);
                 match allanime.search(&query, &mode).await {
                     Ok(mut results) => {
-                        // Enrich with AniList metadata (best effort)
-                        if let Ok(anilist_results) = anilist.search(&query).await {
-                            for result in &mut results {
-                                if let Some(enriched) = anilist_results
-                                    .iter()
-                                    .find(|a| fuzzy_match(&a.title, &result.title))
-                                {
-                                    result.synopsis = enriched.synopsis.clone();
-                                    result.poster_url = enriched.poster_url.clone();
-                                    result.genres = enriched.genres.clone();
-                                    result.rating = enriched.rating;
+                        // Enrich with metadata from the configured provider
+                        match provider {
+                            MetadataProvider::Jikan => {
+                                if let Ok(jikan_results) = jikan.search(&query).await {
+                                    for result in &mut results {
+                                        if let Some(enriched) = jikan_results
+                                            .iter()
+                                            .find(|a| fuzzy_match(&a.title, &result.title))
+                                        {
+                                            result.synopsis = enriched.synopsis.clone();
+                                            result.poster_url = enriched.poster_url.clone();
+                                            result.genres = enriched.genres.clone();
+                                            result.rating = enriched.rating;
+                                        }
+                                    }
                                 }
+                            }
+                            MetadataProvider::Anilist => {
+                                if let Ok(anilist_results) = anilist.search(&query).await {
+                                    for result in &mut results {
+                                        if let Some(enriched) = anilist_results
+                                            .iter()
+                                            .find(|a| fuzzy_match(&a.title, &result.title))
+                                        {
+                                            result.synopsis = enriched.synopsis.clone();
+                                            result.poster_url = enriched.poster_url.clone();
+                                            result.genres = enriched.genres.clone();
+                                            result.rating = enriched.rating;
+                                        }
+                                    }
+                                }
+                            }
+                            MetadataProvider::Anidb => {
+                                // AniDB not yet implemented
                             }
                         }
                         let _ = tx.send(Action::SearchResults(results));
@@ -119,18 +146,42 @@ fn dispatch_action(
         Action::SelectAnime(idx) => {
             let tx = tx.clone();
             let allanime = allanime.clone();
+            let jikan = jikan.clone();
             let mode = app.mode_str().to_string();
+            let provider = app.config.general.metadata_provider;
 
             if let Some(anime) = app.search_results.get(idx).cloned() {
                 let show_id = anime.id.clone();
+                let anime_title = anime.title.clone();
                 // Immediately transition to detail screen
                 let _ = tx.send(Action::AnimeDetail(Box::new(anime)));
 
                 // Load episodes in background
+                let tx2 = tx.clone();
                 tokio::spawn(async move {
                     match allanime.episodes(&show_id, &mode).await {
                         Ok(episodes) => {
                             let _ = tx.send(Action::EpisodesLoaded(episodes));
+
+                            // Fetch episode details from Jikan if configured
+                            if provider == MetadataProvider::Jikan
+                                && let Ok(jikan_results) = jikan.search(&anime_title).await
+                                && let Some(matched) = jikan_results.first()
+                                && let Ok(mal_id) = matched.id.parse::<i64>()
+                            {
+                                // Store the MAL ID so we can fetch per-episode synopses later
+                                let _ = tx2.send(Action::SetMalId(mal_id));
+                                // Small delay to respect rate limit
+                                tokio::time::sleep(
+                                    std::time::Duration::from_millis(350),
+                                )
+                                .await;
+                                if let Ok(details) = jikan.episodes(mal_id).await {
+                                    let _ = tx2.send(
+                                        Action::EpisodeDetailsLoaded(details),
+                                    );
+                                }
+                            }
                         }
                         Err(e) => {
                             let _ = tx.send(Action::Error(format!(
@@ -145,8 +196,14 @@ fn dispatch_action(
         Action::LoadPoster(anime_id, url) => {
             let tx = tx.clone();
             let anilist = anilist.clone();
+            let jikan = jikan.clone();
+            let provider = app.config.general.metadata_provider;
             tokio::spawn(async move {
-                let Ok(bytes) = anilist.download_image(&url).await else {
+                let bytes = match provider {
+                    MetadataProvider::Jikan => jikan.download_image(&url).await,
+                    _ => anilist.download_image(&url).await,
+                };
+                let Ok(bytes) = bytes else {
                     return;
                 };
                 // Decode image off the main thread to avoid blocking the UI
@@ -159,6 +216,21 @@ fn dispatch_action(
                     let _ = tx.send(Action::PosterLoaded(
                         anime_id,
                         crate::action::DecodedImage(img),
+                    ));
+                }
+            });
+        }
+
+        Action::FetchEpisodeSynopsis(mal_id, ep_num) => {
+            let tx = tx.clone();
+            let jikan = jikan.clone();
+            tokio::spawn(async move {
+                if let Ok(detail) = jikan.episode_detail(mal_id, ep_num).await
+                    && let Some(synopsis) = detail.synopsis
+                {
+                    let _ = tx.send(Action::EpisodeSynopsisLoaded(
+                        ep_num as f32,
+                        synopsis,
                     ));
                 }
             });

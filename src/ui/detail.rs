@@ -17,7 +17,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::vertical([
         Constraint::Length(3),  // title bar
         Constraint::Min(8),    // info + synopsis
-        Constraint::Length(12), // episode list
+        Constraint::Min(12),    // episode list + detail
         Constraint::Length(1), // status bar
     ])
     .split(frame.area());
@@ -137,7 +137,14 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .block(Block::default().borders(Borders::ALL).title(" Info "));
     frame.render_widget(metadata, info_chunks[2]);
 
-    // Episode list
+    // Episode section: 40% list | 60% detail
+    let episode_chunks = Layout::horizontal([
+        Constraint::Percentage(40), // episode list
+        Constraint::Percentage(60), // episode detail
+    ])
+    .split(chunks[2]);
+
+    // Episode list (left column)
     if let Some(ref err) = app.error_message {
         let error = Paragraph::new(format!("Error: {err}"))
             .style(Style::default().fg(Color::Red))
@@ -146,7 +153,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     .borders(Borders::ALL)
                     .title(" Episodes "),
             );
-        frame.render_widget(error, chunks[2]);
+        frame.render_widget(error, episode_chunks[0]);
     } else if app.episodes.is_empty() {
         let loading = Paragraph::new("Loading episodes...")
             .style(Style::default().fg(Color::DarkGray))
@@ -155,7 +162,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     .borders(Borders::ALL)
                     .title(" Episodes "),
             );
-        frame.render_widget(loading, chunks[2]);
+        frame.render_widget(loading, episode_chunks[0]);
     } else {
         let items: Vec<ListItem> = app
             .episodes
@@ -192,8 +199,82 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
         let mut state = ListState::default();
         state.select(Some(app.selected_episode));
-        frame.render_stateful_widget(episode_list, chunks[2], &mut state);
+        frame.render_stateful_widget(episode_list, episode_chunks[0], &mut state);
     }
+
+    // Episode detail (right column)
+    let detail_content = if let Some(ep) = app.episodes.get(app.selected_episode) {
+        let num = if ep.number == ep.number.floor() {
+            format!("{}", ep.number as i32)
+        } else {
+            format!("{}", ep.number)
+        };
+
+        let mut lines: Vec<Line> = Vec::new();
+
+        // Episode heading
+        let heading = match &ep.title {
+            Some(t) => format!("Episode {num}: {t}"),
+            None => format!("Episode {num}"),
+        };
+        lines.push(Line::from(Span::styled(
+            heading,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+
+        // Aired date
+        if let Some(ref aired) = ep.aired {
+            lines.push(Line::from(vec![
+                Span::styled("Aired: ", Style::default().fg(Color::DarkGray)),
+                Span::raw(aired.as_str()),
+            ]));
+        }
+
+        // Filler badge
+        if ep.is_filler {
+            lines.push(Line::from(Span::styled(
+                "⚠ Filler episode",
+                Style::default().fg(Color::Yellow),
+            )));
+        }
+
+        if ep.aired.is_some() || ep.is_filler {
+            lines.push(Line::from(""));
+        }
+
+        // Episode synopsis (from Jikan), fall back to anime synopsis
+        if let Some(ref synopsis) = ep.synopsis {
+            lines.push(Line::from(synopsis.as_str()));
+        } else if let Some(ref synopsis) = anime.synopsis {
+            lines.push(Line::from(Span::styled(
+                "Series Synopsis",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(synopsis.as_str()));
+        }
+
+        lines
+    } else {
+        vec![Line::from(Span::styled(
+            "Select an episode",
+            Style::default().fg(Color::DarkGray),
+        ))]
+    };
+
+    let detail_panel = Paragraph::new(detail_content)
+        .wrap(Wrap { trim: true })
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Episode Detail "),
+        );
+    frame.render_widget(detail_panel, episode_chunks[1]);
 
     // Status bar
     let status = Line::from(vec![

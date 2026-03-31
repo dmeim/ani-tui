@@ -47,6 +47,7 @@ pub struct AnidbConfig {
 #[serde(rename_all = "lowercase")]
 pub enum MetadataProvider {
     #[default]
+    Jikan,
     Anilist,
     Anidb,
 }
@@ -130,7 +131,7 @@ mod tests {
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
 
-        assert_eq!(deserialized.general.metadata_provider, MetadataProvider::Anilist);
+        assert_eq!(deserialized.general.metadata_provider, MetadataProvider::Jikan);
         assert_eq!(deserialized.general.default_mode, AudioMode::Sub);
         assert_eq!(deserialized.player.name, PlayerName::Mpv);
         assert!(deserialized.player.custom_command.is_none());
@@ -155,7 +156,7 @@ metadata_provider = "anidb"
     fn serialized_format_matches_readme() {
         let config = Config::default();
         let serialized = toml::to_string_pretty(&config).unwrap();
-        assert!(serialized.contains("metadata_provider = \"anilist\""));
+        assert!(serialized.contains("metadata_provider = \"jikan\""));
         assert!(serialized.contains("default_mode = \"sub\""));
         assert!(serialized.contains("[player]"));
         assert!(serialized.contains("name = \"mpv\""));

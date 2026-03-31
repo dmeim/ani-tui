@@ -13,5 +13,7 @@ pub struct Anime {
 pub struct Episode {
     pub number: f32,
     pub title: Option<String>,
+    pub synopsis: Option<String>,
     pub is_filler: bool,
+    pub aired: Option<String>,
 }

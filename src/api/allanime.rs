@@ -120,7 +120,9 @@ impl AllAnimeClient {
                 Some(Episode {
                     number,
                     title: None,
+                    synopsis: None,
                     is_filler: false,
+                    aired: None,
                 })
             })
             .collect();
