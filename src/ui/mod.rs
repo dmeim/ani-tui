@@ -23,6 +23,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     match app.active_modal {
         Some(ModalKind::Settings) => render_settings_modal(frame, app),
         Some(ModalKind::Player) => render_player_modal(frame, app),
+        Some(ModalKind::Search) => render_search_modal(frame, app),
         None => {}
     }
 }
@@ -102,6 +103,74 @@ fn render_player_modal(frame: &mut Frame, app: &App) {
         .border_style(Style::default().fg(title_color));
     let content = Paragraph::new(lines).wrap(Wrap { trim: false }).block(block);
     frame.render_widget(content, area);
+}
+
+fn render_search_modal(frame: &mut Frame, app: &App) {
+    let area = centered_rect(50, 25, frame.area());
+    frame.render_widget(Clear, area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Search ")
+        .title_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let chunks = Layout::vertical([
+        Constraint::Length(3), // search input
+        Constraint::Min(1),   // loading / error message
+        Constraint::Length(1), // status bar
+    ])
+    .split(inner);
+
+    // Search input
+    let input_title = if app.search_loading {
+        " Searching... "
+    } else {
+        " Query "
+    };
+    let input = Paragraph::new(app.search_input.as_str())
+        .style(Style::default().fg(Color::Yellow))
+        .block(Block::default().borders(Borders::ALL).title(input_title));
+    frame.render_widget(input, chunks[0]);
+
+    // Cursor
+    if app.input_mode == crate::app::InputMode::Editing {
+        frame.set_cursor_position((
+            chunks[0].x + app.cursor_position as u16 + 1,
+            chunks[0].y + 1,
+        ));
+    }
+
+    // Loading spinner or error
+    if app.search_loading {
+        const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        let frame_char = SPINNER[app.tick_count % SPINNER.len()];
+        let loading = Paragraph::new(format!("  {frame_char} Searching..."))
+            .style(Style::default().fg(Color::Yellow));
+        frame.render_widget(loading, chunks[1]);
+    } else if let Some(ref err) = app.search_error {
+        let error = Paragraph::new(format!("  Error: {err}"))
+            .style(Style::default().fg(Color::Red));
+        frame.render_widget(error, chunks[1]);
+    }
+
+    // Status bar
+    let status = Line::from(vec![
+        Span::styled(" Enter", Style::default().fg(Color::Yellow)),
+        Span::raw(" search  "),
+        Span::styled("Esc", Style::default().fg(Color::Yellow)),
+        Span::raw(if app.search_results.is_empty() {
+            " quit"
+        } else {
+            " cancel"
+        }),
+    ]);
+    frame.render_widget(Paragraph::new(status), chunks[2]);
 }
 
 fn render_settings_modal(frame: &mut Frame, app: &mut App) {

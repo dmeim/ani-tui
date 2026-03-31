@@ -28,6 +28,7 @@ pub enum InputMode {
 pub enum ModalKind {
     Settings,
     Player,
+    Search,
 }
 
 pub struct App {
@@ -83,10 +84,11 @@ pub struct App {
 impl App {
     pub fn new(config: Config, picker: Option<Picker>) -> Self {
         let needs_setup = Config::needs_setup().unwrap_or(false);
+        let start_with_search = !needs_setup;
         Self {
             should_quit: false,
             screen: if needs_setup { Screen::Setup } else { Screen::Search },
-            input_mode: InputMode::Normal,
+            input_mode: if start_with_search { InputMode::Editing } else { InputMode::Normal },
             config,
             search_input: String::new(),
             cursor_position: 0,
@@ -106,7 +108,7 @@ impl App {
             play_error: None,
             setup_step: 0,
             setup_selected: 0,
-            active_modal: None,
+            active_modal: if start_with_search { Some(ModalKind::Search) } else { None },
             settings_cursor: 0,
             settings_editing: false,
             settings_option_cursor: 0,
@@ -185,6 +187,11 @@ impl App {
                 self.search_results = results;
                 self.selected_result = 0;
                 self.poster_cache.clear();
+                // Dismiss search modal when results arrive
+                if !self.search_results.is_empty() {
+                    self.active_modal = None;
+                    self.input_mode = InputMode::Normal;
+                }
                 self.load_selected_poster()
             }
             Action::SearchError(e) => {
@@ -323,6 +330,7 @@ impl App {
                 None
             }
             KeyCode::Char('s') | KeyCode::Char('i') => {
+                self.active_modal = Some(ModalKind::Search);
                 self.input_mode = InputMode::Editing;
                 None
             }
@@ -440,7 +448,52 @@ impl App {
         match self.active_modal {
             Some(ModalKind::Player) => self.handle_player_modal_key(code),
             Some(ModalKind::Settings) => self.handle_settings_modal_key(code),
+            Some(ModalKind::Search) => self.handle_search_modal_key(code),
             None => None,
+        }
+    }
+
+    fn handle_search_modal_key(&mut self, code: KeyCode) -> Option<Action> {
+        match code {
+            KeyCode::Esc => {
+                if self.search_results.is_empty() {
+                    self.should_quit = true;
+                } else {
+                    self.active_modal = None;
+                    self.input_mode = InputMode::Normal;
+                }
+                None
+            }
+            KeyCode::Char(c) => {
+                self.search_input.insert(self.cursor_position, c);
+                self.cursor_position += 1;
+                None
+            }
+            KeyCode::Backspace => {
+                if self.cursor_position > 0 {
+                    self.cursor_position -= 1;
+                    self.search_input.remove(self.cursor_position);
+                }
+                None
+            }
+            KeyCode::Left => {
+                self.cursor_position = self.cursor_position.saturating_sub(1);
+                None
+            }
+            KeyCode::Right => {
+                if self.cursor_position < self.search_input.len() {
+                    self.cursor_position += 1;
+                }
+                None
+            }
+            KeyCode::Enter => {
+                if !self.search_input.is_empty() {
+                    Some(Action::Search(self.search_input.clone()))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
     }
 
