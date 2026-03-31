@@ -11,6 +11,7 @@ mod player;
 mod ui;
 
 use color_eyre::Result;
+use ratatui_image::picker::Picker;
 use tokio::sync::mpsc;
 
 use crate::action::Action;
@@ -24,9 +25,13 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
 
     let config = Config::load()?;
+
+    // Detect terminal graphics protocol before entering alternate screen
+    let picker = Picker::from_query_stdio().ok();
+
     let mut terminal = tui::init()?;
     let mut events = tui::EventHandler::new(4.0, 30.0);
-    let mut app = App::new(config);
+    let mut app = App::new(config, picker);
 
     let allanime = AllAnimeClient::new()?;
     let anilist = AniListClient::new();
@@ -46,10 +51,13 @@ async fn main() -> Result<()> {
 
         match action {
             Action::Render => {
-                terminal.draw(|frame| ui::render(frame, &app))?;
+                terminal.draw(|frame| ui::render(frame, &mut app))?;
                 continue;
             }
-            Action::Tick => continue,
+            Action::Tick => {
+                app.tick_count = app.tick_count.wrapping_add(1);
+                continue;
+            }
             _ => {}
         }
 
@@ -132,6 +140,28 @@ fn dispatch_action(
                     }
                 });
             }
+        }
+
+        Action::LoadPoster(anime_id, url) => {
+            let tx = tx.clone();
+            let anilist = anilist.clone();
+            tokio::spawn(async move {
+                let Ok(bytes) = anilist.download_image(&url).await else {
+                    return;
+                };
+                // Decode image off the main thread to avoid blocking the UI
+                let Ok(img) = tokio::task::spawn_blocking(move || {
+                    image::load_from_memory(&bytes)
+                }).await else {
+                    return;
+                };
+                if let Ok(img) = img {
+                    let _ = tx.send(Action::PosterLoaded(
+                        anime_id,
+                        crate::action::DecodedImage(img),
+                    ));
+                }
+            });
         }
 
         Action::SelectEpisode(idx) => {

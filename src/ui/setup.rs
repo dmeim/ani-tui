@@ -9,7 +9,7 @@ use ratatui::{
 use crate::app::App;
 use crate::config::PlayerName;
 
-pub fn render(frame: &mut Frame, app: &App) {
+pub fn render(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::vertical([
         Constraint::Length(3),  // title
         Constraint::Length(3),  // step indicator

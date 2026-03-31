@@ -1,7 +1,19 @@
 use crossterm::event::KeyEvent;
+use image::DynamicImage;
 
 use crate::model::anime::{Anime, Episode};
 use crate::model::stream::StreamUrl;
+
+/// Wrapper around DynamicImage to implement Debug (image crate doesn't).
+#[derive(Clone)]
+pub struct DecodedImage(pub DynamicImage);
+
+impl std::fmt::Debug for DecodedImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (w, h) = (self.0.width(), self.0.height());
+        write!(f, "DecodedImage({w}x{h})")
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -28,6 +40,10 @@ pub enum Action {
     StreamsResolved(Vec<StreamUrl>),
     Play,
     PlayError(String),
+
+    // Poster loading
+    LoadPoster(String, String), // anime_id, poster_url
+    PosterLoaded(String, DecodedImage), // anime_id, decoded image
 
     // Navigation
     Back,

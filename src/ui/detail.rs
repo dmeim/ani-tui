@@ -5,10 +5,11 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
+use ratatui_image::{Resize, StatefulImage};
 
 use crate::app::App;
 
-pub fn render(frame: &mut Frame, app: &App) {
+pub fn render(frame: &mut Frame, app: &mut App) {
     let Some(ref anime) = app.selected_anime else {
         return;
     };
@@ -34,26 +35,17 @@ pub fn render(frame: &mut Frame, app: &App) {
     frame.render_widget(title, chunks[0]);
 
     // Info + Synopsis area
-    let info_chunks = Layout::horizontal([
-        Constraint::Min(30),       // synopsis
-        Constraint::Length(30),    // metadata sidebar
-    ])
-    .split(chunks[1]);
+    let anime_id = anime.id.clone();
+    let has_poster = app.poster_cache.contains_key(&anime_id);
 
-    // Synopsis
-    let synopsis_text = anime
-        .synopsis
-        .as_deref()
-        .unwrap_or("No description available.");
-    let synopsis = Paragraph::new(synopsis_text)
-        .wrap(Wrap { trim: true })
-        .block(Block::default().borders(Borders::ALL).title(" Synopsis "));
-    frame.render_widget(synopsis, info_chunks[0]);
-
-    // Metadata sidebar
+    // Build metadata lines first so we can measure the sidebar width
+    // (re-borrow anime immutably — poster_cache access comes later)
     let mut meta_lines: Vec<Line> = Vec::new();
+    let mut max_meta_width: usize = 0;
 
     if let Some(eps) = anime.episode_count {
+        let line_len = format!("Episodes: {eps}").len();
+        max_meta_width = max_meta_width.max(line_len);
         meta_lines.push(Line::from(vec![
             Span::styled("Episodes: ", Style::default().fg(Color::DarkGray)),
             Span::raw(format!("{eps}")),
@@ -61,6 +53,8 @@ pub fn render(frame: &mut Frame, app: &App) {
     }
 
     if let Some(rating) = anime.rating {
+        let line_len = format!("Rating:   {rating:.1}/10").len();
+        max_meta_width = max_meta_width.max(line_len);
         meta_lines.push(Line::from(vec![
             Span::styled("Rating:   ", Style::default().fg(Color::DarkGray)),
             Span::styled(
@@ -83,13 +77,65 @@ pub fn render(frame: &mut Frame, app: &App) {
             Style::default().fg(Color::DarkGray),
         )));
         for genre in &anime.genres {
+            max_meta_width = max_meta_width.max(genre.len() + 2); // "  genre"
             meta_lines.push(Line::from(format!("  {genre}")));
         }
     }
 
+    // Info sidebar: content width + borders (2) + inner padding (2)
+    let info_width = (max_meta_width as u16 + 4).max(12);
+
+    // Poster column: compute width from actual image dimensions + terminal font size.
+    // cols = rows * (img_w / img_h) * (cell_h / cell_w)
+    let poster_width = if has_poster {
+        let available_h = chunks[1].height;
+        let (img_w, img_h, _) = app.poster_cache.get(&anime_id).unwrap();
+        let (cell_w, cell_h) = app
+            .picker
+            .as_ref()
+            .map(|p| p.font_size())
+            .unwrap_or((8, 16));
+        let inner_rows = available_h;
+        let cols = (inner_rows as f32 * *img_w as f32 * cell_h as f32
+            / (*img_h as f32 * cell_w as f32))
+            .round() as u16;
+        cols.max(10)
+    } else {
+        0
+    };
+
+    let info_chunks = Layout::horizontal([
+        Constraint::Length(poster_width), // poster
+        Constraint::Min(20),             // synopsis (gets all remaining)
+        Constraint::Length(info_width),   // metadata sidebar
+    ])
+    .split(chunks[1]);
+
+    // Poster — rendered without a border box so image fills the space exactly
+    if has_poster
+        && let Some((_, _, protocol)) = app.poster_cache.get_mut(&anime_id)
+    {
+        let image_widget = StatefulImage::new().resize(Resize::Scale(None));
+        frame.render_stateful_widget(image_widget, info_chunks[0], protocol);
+    }
+
+    // Re-borrow anime after mutable poster_cache access
+    let anime = app.selected_anime.as_ref().unwrap();
+
+    // Synopsis
+    let synopsis_text = anime
+        .synopsis
+        .as_deref()
+        .unwrap_or("No description available.");
+    let synopsis = Paragraph::new(synopsis_text)
+        .wrap(Wrap { trim: true })
+        .block(Block::default().borders(Borders::ALL).title(" Synopsis "));
+    frame.render_widget(synopsis, info_chunks[1]);
+
+    // Metadata sidebar
     let metadata = Paragraph::new(meta_lines)
         .block(Block::default().borders(Borders::ALL).title(" Info "));
-    frame.render_widget(metadata, info_chunks[1]);
+    frame.render_widget(metadata, info_chunks[2]);
 
     // Episode list
     if let Some(ref err) = app.error_message {
@@ -157,90 +203,10 @@ pub fn render(frame: &mut Frame, app: &App) {
         Span::raw(" navigate  "),
         Span::styled("Enter", Style::default().fg(Color::Yellow)),
         Span::raw(" play episode  "),
+        Span::styled("/", Style::default().fg(Color::Yellow)),
+        Span::raw(" settings  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
     ]);
     frame.render_widget(Paragraph::new(status), chunks[3]);
-}
-
-pub fn render_playing(frame: &mut Frame, app: &App) {
-    let chunks = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(1),
-        Constraint::Length(1),
-    ])
-    .split(frame.area());
-
-    // Title
-    let title_text = match &app.now_playing_title {
-        Some(t) => format!(" {t} "),
-        None => " Now Playing ".to_string(),
-    };
-    let title_color = if app.play_error.is_some() {
-        Color::Red
-    } else if app.streams.is_empty() {
-        Color::Yellow
-    } else {
-        Color::Green
-    };
-    let title = Paragraph::new(title_text)
-        .style(
-            Style::default()
-                .fg(title_color)
-                .add_modifier(Modifier::BOLD),
-        )
-        .block(Block::default().borders(Borders::BOTTOM));
-    frame.render_widget(title, chunks[0]);
-
-    // Content
-    let mut lines = vec![Line::from("")];
-
-    if let Some(ref err) = app.play_error {
-        lines.push(Line::from(Span::styled(
-            format!("  Error: {err}"),
-            Style::default().fg(Color::Red),
-        )));
-        lines.push(Line::from(""));
-        lines.push(Line::from("  Press Esc to go back and try again."));
-    } else if app.streams.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "  Resolving stream and launching player...",
-            Style::default().fg(Color::Yellow),
-        )));
-    } else {
-        lines.push(Line::from(Span::styled(
-            "  Player launched!",
-            Style::default().fg(Color::Green),
-        )));
-        lines.push(Line::from(""));
-        lines.push(Line::from("  Controls:"));
-        lines.push(Line::from(vec![
-            Span::styled("    n", Style::default().fg(Color::Yellow)),
-            Span::raw(" — next episode"),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("    p", Style::default().fg(Color::Yellow)),
-            Span::raw(" — previous episode"),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("    Esc", Style::default().fg(Color::Yellow)),
-            Span::raw(" — back to detail"),
-        ]));
-    }
-
-    let content = Paragraph::new(lines).block(Block::default().borders(Borders::ALL));
-    frame.render_widget(content, chunks[1]);
-
-    // Status bar
-    let status = Line::from(vec![
-        Span::styled(" n", Style::default().fg(Color::Yellow)),
-        Span::raw(" next  "),
-        Span::styled("p", Style::default().fg(Color::Yellow)),
-        Span::raw(" prev  "),
-        Span::styled("Esc", Style::default().fg(Color::Yellow)),
-        Span::raw(" back  "),
-        Span::styled("q", Style::default().fg(Color::Yellow)),
-        Span::raw(" quit"),
-    ]);
-    frame.render_widget(Paragraph::new(status), chunks[2]);
 }

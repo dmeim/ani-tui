@@ -100,7 +100,7 @@
 
 ### 5.2 Detail Screen
 - [x] Layout: poster (left) + synopsis (right)
-- [ ] Poster rendering via `ratatui-image` with protocol auto-detection
+- [x] Poster rendering via `ratatui-image` with protocol auto-detection
 - [x] Scrollable synopsis text
 - [x] Genre / rating / status info bar
 - [x] Episode list below (navigable)
