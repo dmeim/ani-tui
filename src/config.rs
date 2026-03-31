@@ -16,7 +16,9 @@ pub struct Config {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GeneralConfig {
-    pub metadata_provider: MetadataProvider,
+    pub series_provider: MetadataProvider,
+    pub episode_provider: MetadataProvider,
+    pub poster_provider: MetadataProvider,
     pub default_mode: AudioMode,
 }
 
@@ -131,7 +133,9 @@ mod tests {
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
 
-        assert_eq!(deserialized.general.metadata_provider, MetadataProvider::Jikan);
+        assert_eq!(deserialized.general.series_provider, MetadataProvider::Jikan);
+        assert_eq!(deserialized.general.episode_provider, MetadataProvider::Jikan);
+        assert_eq!(deserialized.general.poster_provider, MetadataProvider::Jikan);
         assert_eq!(deserialized.general.default_mode, AudioMode::Sub);
         assert_eq!(deserialized.player.name, PlayerName::Mpv);
         assert!(deserialized.player.custom_command.is_none());
@@ -143,11 +147,13 @@ mod tests {
     fn deserializes_partial_config() {
         let partial = r#"
 [general]
-metadata_provider = "anidb"
+series_provider = "anidb"
+episode_provider = "anilist"
 "#;
         let config: Config = toml::from_str(partial).unwrap();
-        assert_eq!(config.general.metadata_provider, MetadataProvider::Anidb);
-        // rest should be defaults
+        assert_eq!(config.general.series_provider, MetadataProvider::Anidb);
+        assert_eq!(config.general.episode_provider, MetadataProvider::Anilist);
+        assert_eq!(config.general.poster_provider, MetadataProvider::Jikan); // default
         assert_eq!(config.general.default_mode, AudioMode::Sub);
         assert_eq!(config.player.name, PlayerName::Mpv);
     }
@@ -156,7 +162,9 @@ metadata_provider = "anidb"
     fn serialized_format_matches_readme() {
         let config = Config::default();
         let serialized = toml::to_string_pretty(&config).unwrap();
-        assert!(serialized.contains("metadata_provider = \"jikan\""));
+        assert!(serialized.contains("series_provider = \"jikan\""));
+        assert!(serialized.contains("episode_provider = \"jikan\""));
+        assert!(serialized.contains("poster_provider = \"jikan\""));
         assert!(serialized.contains("default_mode = \"sub\""));
         assert!(serialized.contains("[player]"));
         assert!(serialized.contains("name = \"mpv\""));

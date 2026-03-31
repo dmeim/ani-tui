@@ -29,7 +29,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     frame.render_widget(title, chunks[0]);
 
     // Step indicator
-    let steps = ["Metadata Provider", "Video Player", "Audio Preference"];
+    let steps = [
+        "Series Details Provider",
+        "Episode Details Provider",
+        "Poster Provider",
+        "Video Player",
+        "Audio Preference",
+    ];
     let step_display = format!(
         " Step {} of {}: {} ",
         app.setup_step + 1,
@@ -43,9 +49,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     // Options for current step
     let (items, description) = match app.setup_step {
-        0 => metadata_provider_options(),
-        1 => player_options(),
-        2 => audio_mode_options(),
+        0 => series_provider_options(),
+        1 => episode_provider_options(),
+        2 => poster_provider_options(),
+        3 => player_options(),
+        4 => audio_mode_options(),
         _ => (vec![], "Setup complete!".to_string()),
     };
 
@@ -90,13 +98,31 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     frame.render_widget(Paragraph::new(status), chunks[3]);
 }
 
-fn metadata_provider_options() -> (Vec<(&'static str, &'static str)>, String) {
+fn series_provider_options() -> (Vec<(&'static str, &'static str)>, String) {
     let items = vec![
-        ("Jikan (MAL)", "Free, no account needed, episode details + synopses"),
-        ("AniList", "Free, no account needed, modern API"),
+        ("Jikan (MAL)", "Ratings, genres, episode count, synopsis"),
+        ("AniList", "Free, modern API, ratings + genres"),
         ("AniDB", "Comprehensive database, requires client registration"),
     ];
-    (items, "Choose your metadata provider".to_string())
+    (items, "Series details provider (ratings, genres, etc.)".to_string())
+}
+
+fn episode_provider_options() -> (Vec<(&'static str, &'static str)>, String) {
+    let items = vec![
+        ("Jikan (MAL)", "Episode titles, synopses, filler flags"),
+        ("AniList", "Limited episode data"),
+        ("AniDB", "Comprehensive episode database, requires registration"),
+    ];
+    (items, "Episode details provider (titles, synopses)".to_string())
+}
+
+fn poster_provider_options() -> (Vec<(&'static str, &'static str)>, String) {
+    let items = vec![
+        ("Jikan (MAL)", "MAL cover images"),
+        ("AniList", "High-quality cover art"),
+        ("AniDB", "AniDB cover images, requires registration"),
+    ];
+    (items, "Poster provider (cover images)".to_string())
 }
 
 fn player_options() -> (Vec<(&'static str, &'static str)>, String) {

@@ -188,9 +188,11 @@ fn render_settings_modal(frame: &mut Frame, app: &mut App) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // 3 setting rows + status bar
+    // 5 setting rows + status bar
     let chunks = Layout::vertical([
-        Constraint::Length(2), // Metadata Provider
+        Constraint::Length(2), // Series Details Provider
+        Constraint::Length(2), // Episode Details Provider
+        Constraint::Length(2), // Poster Provider
         Constraint::Length(2), // Video Player
         Constraint::Length(2), // Audio Preference
         Constraint::Min(0),   // spacer
@@ -198,18 +200,26 @@ fn render_settings_modal(frame: &mut Frame, app: &mut App) {
     ])
     .split(inner);
 
-    let settings: [(&str, String); 3] = [
+    let settings: [(&str, String); 5] = [
         (
-            "Metadata Provider",
+            "Series Details",
             current_value_label(app, 0),
         ),
         (
-            "Video Player",
+            "Episode Details",
             current_value_label(app, 1),
         ),
         (
-            "Audio Preference",
+            "Poster",
             current_value_label(app, 2),
+        ),
+        (
+            "Video Player",
+            current_value_label(app, 3),
+        ),
+        (
+            "Audio Preference",
+            current_value_label(app, 4),
         ),
     ];
 
@@ -322,25 +332,23 @@ fn render_settings_modal(frame: &mut Frame, app: &mut App) {
             Span::raw(" close"),
         ])
     };
-    frame.render_widget(Paragraph::new(status), chunks[4]);
+    frame.render_widget(Paragraph::new(status), chunks[6]);
 }
 
 /// Get the display label for the current value of a setting row.
 fn current_value_label(app: &App, row: usize) -> String {
     match row {
-        0 => match app.config.general.metadata_provider {
-            crate::config::MetadataProvider::Jikan => "Jikan (MAL)".to_string(),
-            crate::config::MetadataProvider::Anilist => "AniList".to_string(),
-            crate::config::MetadataProvider::Anidb => "AniDB".to_string(),
-        },
-        1 => match app.config.player.name {
+        0 => provider_label(app.config.general.series_provider),
+        1 => provider_label(app.config.general.episode_provider),
+        2 => provider_label(app.config.general.poster_provider),
+        3 => match app.config.player.name {
             PlayerName::Mpv => "mpv".to_string(),
             PlayerName::Iina => "IINA".to_string(),
             PlayerName::Vlc => "VLC".to_string(),
             PlayerName::Quicktime => "QuickTime".to_string(),
             PlayerName::Custom => "Custom".to_string(),
         },
-        2 => match app.config.general.default_mode {
+        4 => match app.config.general.default_mode {
             crate::config::AudioMode::Sub => "Sub".to_string(),
             crate::config::AudioMode::Dub => "Dub".to_string(),
         },
@@ -348,11 +356,23 @@ fn current_value_label(app: &App, row: usize) -> String {
     }
 }
 
+fn provider_label(p: crate::config::MetadataProvider) -> String {
+    match p {
+        crate::config::MetadataProvider::Jikan => "Jikan (MAL)".to_string(),
+        crate::config::MetadataProvider::Anilist => "AniList".to_string(),
+        crate::config::MetadataProvider::Anidb => "AniDB".to_string(),
+    }
+}
+
+fn provider_options() -> Vec<String> {
+    vec!["Jikan (MAL)".to_string(), "AniList".to_string(), "AniDB".to_string()]
+}
+
 /// Get the list of option labels for a given setting row.
 fn setting_options(row: usize) -> Vec<String> {
     match row {
-        0 => vec!["Jikan (MAL)".to_string(), "AniList".to_string(), "AniDB".to_string()],
-        1 => {
+        0 | 1 | 2 => provider_options(),
+        3 => {
             let detected = crate::player::detect_installed();
             let mut opts: Vec<String> = detected
                 .iter()
@@ -367,7 +387,7 @@ fn setting_options(row: usize) -> Vec<String> {
             opts.push("Custom".to_string());
             opts
         }
-        2 => vec!["Sub".to_string(), "Dub".to_string()],
+        4 => vec!["Sub".to_string(), "Dub".to_string()],
         _ => vec![],
     }
 }

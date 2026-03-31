@@ -6,6 +6,9 @@ use ratatui_image::protocol::StatefulProtocol;
 
 use crate::action::Action;
 use crate::config::{AudioMode, Config, MetadataProvider, PlayerName};
+
+/// Number of setting rows in the settings modal.
+const SETTINGS_ROW_COUNT: usize = 5;
 use crate::model::anime::{Anime, Episode};
 use crate::model::stream::StreamUrl;
 
@@ -559,7 +562,7 @@ impl App {
             // Navigate between setting rows
             match code {
                 KeyCode::Char('j') | KeyCode::Down => {
-                    self.settings_cursor = (self.settings_cursor + 1).min(2);
+                    self.settings_cursor = (self.settings_cursor + 1).min(SETTINGS_ROW_COUNT - 1);
                     None
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
@@ -591,9 +594,11 @@ impl App {
     /// How many options does a given setting row have?
     fn settings_option_count(&self, row: usize) -> usize {
         match row {
-            0 => 3, // metadata provider: Jikan, AniList, AniDB
-            1 => crate::player::detect_installed().len() + 1, // players + Custom
-            2 => 2, // audio: Sub, Dub
+            0 => 3, // series provider: Jikan, AniList, AniDB
+            1 => 3, // episode provider: Jikan, AniList, AniDB
+            2 => 3, // poster provider: Jikan, AniList, AniDB
+            3 => crate::player::detect_installed().len() + 1, // players + Custom
+            4 => 2, // audio: Sub, Dub
             _ => 1,
         }
     }
@@ -601,19 +606,17 @@ impl App {
     /// The index of the currently-active option for a given setting row.
     fn current_option_index(&self, row: usize) -> usize {
         match row {
-            0 => match self.config.general.metadata_provider {
-                MetadataProvider::Jikan => 0,
-                MetadataProvider::Anilist => 1,
-                MetadataProvider::Anidb => 2,
-            },
-            1 => {
+            0 => provider_to_index(self.config.general.series_provider),
+            1 => provider_to_index(self.config.general.episode_provider),
+            2 => provider_to_index(self.config.general.poster_provider),
+            3 => {
                 let detected = crate::player::detect_installed();
                 detected
                     .iter()
                     .position(|p| *p == self.config.player.name)
                     .unwrap_or(detected.len()) // falls through to Custom
             }
-            2 => match self.config.general.default_mode {
+            4 => match self.config.general.default_mode {
                 AudioMode::Sub => 0,
                 AudioMode::Dub => 1,
             },
@@ -623,14 +626,10 @@ impl App {
 
     fn apply_settings_option(&mut self, row: usize, option: usize) {
         match row {
-            0 => {
-                self.config.general.metadata_provider = match option {
-                    0 => MetadataProvider::Jikan,
-                    1 => MetadataProvider::Anilist,
-                    _ => MetadataProvider::Anidb,
-                };
-            }
-            1 => {
+            0 => self.config.general.series_provider = index_to_provider(option),
+            1 => self.config.general.episode_provider = index_to_provider(option),
+            2 => self.config.general.poster_provider = index_to_provider(option),
+            3 => {
                 let detected = crate::player::detect_installed();
                 if option < detected.len() {
                     self.config.player.name = detected[option];
@@ -638,7 +637,7 @@ impl App {
                     self.config.player.name = PlayerName::Custom;
                 }
             }
-            2 => {
+            4 => {
                 self.config.general.default_mode = match option {
                     0 => AudioMode::Sub,
                     _ => AudioMode::Dub,
@@ -652,12 +651,14 @@ impl App {
 
     fn handle_setup_normal(&mut self, code: KeyCode) -> Option<Action> {
         let max_items = match self.setup_step {
-            0 => 3, // metadata provider: jikan, anilist, anidb
-            1 => {   // players: detected count + custom
+            0 => 3, // series provider: jikan, anilist, anidb
+            1 => 3, // episode provider
+            2 => 3, // poster provider
+            3 => {   // players: detected count + custom
                 let detected = crate::player::detect_installed();
                 detected.len() + 1
             }
-            2 => 2, // audio mode: sub, dub
+            4 => 2, // audio mode: sub, dub
             _ => 1,
         };
 
@@ -674,7 +675,7 @@ impl App {
                 self.apply_setup_selection();
                 self.setup_step += 1;
                 self.setup_selected = 0;
-                if self.setup_step >= 3 {
+                if self.setup_step >= 5 {
                     // Setup complete
                     let _ = self.config.save();
                     self.screen = Screen::Search;
@@ -698,14 +699,10 @@ impl App {
 
     fn apply_setup_selection(&mut self) {
         match self.setup_step {
-            0 => {
-                self.config.general.metadata_provider = match self.setup_selected {
-                    0 => MetadataProvider::Jikan,
-                    1 => MetadataProvider::Anilist,
-                    _ => MetadataProvider::Anidb,
-                };
-            }
-            1 => {
+            0 => self.config.general.series_provider = index_to_provider(self.setup_selected),
+            1 => self.config.general.episode_provider = index_to_provider(self.setup_selected),
+            2 => self.config.general.poster_provider = index_to_provider(self.setup_selected),
+            3 => {
                 let detected = crate::player::detect_installed();
                 if self.setup_selected < detected.len() {
                     self.config.player.name = detected[self.setup_selected];
@@ -713,7 +710,7 @@ impl App {
                     self.config.player.name = PlayerName::Custom;
                 }
             }
-            2 => {
+            4 => {
                 self.config.general.default_mode = match self.setup_selected {
                     0 => AudioMode::Sub,
                     _ => AudioMode::Dub,
@@ -741,5 +738,21 @@ impl App {
             Screen::Search => {}
             Screen::Setup => {}
         }
+    }
+}
+
+fn provider_to_index(p: MetadataProvider) -> usize {
+    match p {
+        MetadataProvider::Jikan => 0,
+        MetadataProvider::Anilist => 1,
+        MetadataProvider::Anidb => 2,
+    }
+}
+
+fn index_to_provider(i: usize) -> MetadataProvider {
+    match i {
+        0 => MetadataProvider::Jikan,
+        1 => MetadataProvider::Anilist,
+        _ => MetadataProvider::Anidb,
     }
 }

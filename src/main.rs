@@ -89,7 +89,7 @@ fn dispatch_action(
     match action {
         Action::Search(query) => {
             let mode = app.mode_str().to_string();
-            let provider = app.config.general.metadata_provider;
+            let series_provider = app.config.general.series_provider;
             let allanime = allanime.clone();
             let anilist = anilist.clone();
             let jikan = jikan.clone();
@@ -98,8 +98,8 @@ fn dispatch_action(
                 let _ = tx.send(Action::SearchLoading);
                 match allanime.search(&query, &mode).await {
                     Ok(mut results) => {
-                        // Enrich with metadata from the configured provider
-                        match provider {
+                        // Enrich with metadata from the configured series provider
+                        match series_provider {
                             MetadataProvider::Jikan => {
                                 if let Ok(jikan_results) = jikan.search(&query).await {
                                     for result in &mut results {
@@ -148,7 +148,7 @@ fn dispatch_action(
             let allanime = allanime.clone();
             let jikan = jikan.clone();
             let mode = app.mode_str().to_string();
-            let provider = app.config.general.metadata_provider;
+            let episode_provider = app.config.general.episode_provider;
 
             if let Some(anime) = app.search_results.get(idx).cloned() {
                 let show_id = anime.id.clone();
@@ -164,7 +164,7 @@ fn dispatch_action(
                             let _ = tx.send(Action::EpisodesLoaded(episodes));
 
                             // Fetch episode details from Jikan if configured
-                            if provider == MetadataProvider::Jikan
+                            if episode_provider == MetadataProvider::Jikan
                                 && let Ok(jikan_results) = jikan.search(&anime_title).await
                                 && let Some(matched) = jikan_results.first()
                                 && let Ok(mal_id) = matched.id.parse::<i64>()
@@ -197,9 +197,9 @@ fn dispatch_action(
             let tx = tx.clone();
             let anilist = anilist.clone();
             let jikan = jikan.clone();
-            let provider = app.config.general.metadata_provider;
+            let poster_provider = app.config.general.poster_provider;
             tokio::spawn(async move {
-                let bytes = match provider {
+                let bytes = match poster_provider {
                     MetadataProvider::Jikan => jikan.download_image(&url).await,
                     _ => anilist.download_image(&url).await,
                 };
