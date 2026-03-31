@@ -11,13 +11,13 @@ use crate::app::App;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     if app.search_results.is_empty() {
-        render_empty(frame);
+        render_empty(frame, app);
     } else {
         render_results(frame, app);
     }
 }
 
-fn render_empty(frame: &mut Frame) {
+fn render_empty(frame: &mut Frame, app: &App) {
     let chunks = Layout::vertical([
         Constraint::Length(3),  // title
         Constraint::Min(1),    // empty space
@@ -34,15 +34,17 @@ fn render_empty(frame: &mut Frame) {
         .block(Block::default().borders(Borders::BOTTOM));
     frame.render_widget(title, chunks[0]);
 
-    let status = Line::from(vec![
-        Span::styled(" s", Style::default().fg(Color::Yellow)),
-        Span::raw(" search  "),
-        Span::styled("/", Style::default().fg(Color::Yellow)),
-        Span::raw(" settings  "),
-        Span::styled("q", Style::default().fg(Color::Yellow)),
-        Span::raw(" quit"),
-    ]);
-    frame.render_widget(Paragraph::new(status), chunks[2]);
+    if app.active_modal.is_none() {
+        let status = Line::from(vec![
+            Span::styled(" s", Style::default().fg(Color::Yellow)),
+            Span::raw(" search  "),
+            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::raw(" settings  "),
+            Span::styled("q", Style::default().fg(Color::Yellow)),
+            Span::raw(" quit"),
+        ]);
+        frame.render_widget(Paragraph::new(status), chunks[2]);
+    }
 }
 
 const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -259,26 +261,28 @@ fn render_results(frame: &mut Frame, app: &mut App) {
         frame.render_widget(loading, right_rows[1]);
     }
 
-    // Status bar
-    let result_indicator = format!(
-        " [{}/{}] ",
-        app.selected_result + 1,
-        app.search_results.len()
-    );
-    let status = Line::from(vec![
-        Span::styled(result_indicator, Style::default().fg(Color::Cyan)),
-        Span::styled("s", Style::default().fg(Color::Yellow)),
-        Span::raw(" search  "),
-        Span::styled("j/k", Style::default().fg(Color::Yellow)),
-        Span::raw(" navigate  "),
-        Span::styled("Enter", Style::default().fg(Color::Yellow)),
-        Span::raw(" select  "),
-        Span::styled("/", Style::default().fg(Color::Yellow)),
-        Span::raw(" settings  "),
-        Span::styled("q", Style::default().fg(Color::Yellow)),
-        Span::raw(" quit"),
-    ]);
-    frame.render_widget(Paragraph::new(status), chunks[1]);
+    // Status bar (hidden when a modal is active — modal shows its own keybinds)
+    if app.active_modal.is_none() {
+        let result_indicator = format!(
+            " [{}/{}] ",
+            app.selected_result + 1,
+            app.search_results.len()
+        );
+        let status = Line::from(vec![
+            Span::styled(result_indicator, Style::default().fg(Color::Cyan)),
+            Span::styled("s", Style::default().fg(Color::Yellow)),
+            Span::raw(" search  "),
+            Span::styled("j/k", Style::default().fg(Color::Yellow)),
+            Span::raw(" navigate  "),
+            Span::styled("Enter", Style::default().fg(Color::Yellow)),
+            Span::raw(" select  "),
+            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::raw(" settings  "),
+            Span::styled("q", Style::default().fg(Color::Yellow)),
+            Span::raw(" quit"),
+        ]);
+        frame.render_widget(Paragraph::new(status), chunks[1]);
+    }
 }
 
 /// Word-wrap `text` to fit within `width` columns, breaking at word boundaries.

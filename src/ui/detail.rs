@@ -276,18 +276,20 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         );
     frame.render_widget(detail_panel, episode_chunks[1]);
 
-    // Status bar
-    let status = Line::from(vec![
-        Span::styled(" Esc", Style::default().fg(Color::Yellow)),
-        Span::raw(" back  "),
-        Span::styled("j/k", Style::default().fg(Color::Yellow)),
-        Span::raw(" navigate  "),
-        Span::styled("Enter", Style::default().fg(Color::Yellow)),
-        Span::raw(" play episode  "),
-        Span::styled("/", Style::default().fg(Color::Yellow)),
-        Span::raw(" settings  "),
-        Span::styled("q", Style::default().fg(Color::Yellow)),
-        Span::raw(" quit"),
-    ]);
-    frame.render_widget(Paragraph::new(status), chunks[3]);
+    // Status bar (hidden when a modal is active — modal shows its own keybinds)
+    if app.active_modal.is_none() {
+        let status = Line::from(vec![
+            Span::styled(" Esc", Style::default().fg(Color::Yellow)),
+            Span::raw(" back  "),
+            Span::styled("j/k", Style::default().fg(Color::Yellow)),
+            Span::raw(" navigate  "),
+            Span::styled("Enter", Style::default().fg(Color::Yellow)),
+            Span::raw(" play episode  "),
+            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::raw(" settings  "),
+            Span::styled("q", Style::default().fg(Color::Yellow)),
+            Span::raw(" quit"),
+        ]);
+        frame.render_widget(Paragraph::new(status), chunks[3]);
+    }
 }

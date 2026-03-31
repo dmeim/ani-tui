@@ -10,6 +10,8 @@ mod model;
 mod player;
 mod ui;
 
+use std::process::Command;
+
 use color_eyre::Result;
 use ratatui_image::picker::Picker;
 use tokio::sync::mpsc;
@@ -21,9 +23,37 @@ use crate::api::jikan::JikanClient;
 use crate::app::App;
 use crate::config::{Config, MetadataProvider};
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
+
+    // Handle CLI flags before launching the TUI
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "--version" | "-v" => {
+                println!("ani-tui {VERSION}");
+                return Ok(());
+            }
+            "--help" | "-h" => {
+                print_help();
+                return Ok(());
+            }
+            "--update" => {
+                return self_update();
+            }
+            "--uninstall" => {
+                return self_uninstall();
+            }
+            other => {
+                eprintln!("Unknown option: {other}");
+                eprintln!("Run 'ani-tui --help' for usage.");
+                std::process::exit(1);
+            }
+        }
+    }
 
     let config = Config::load()?;
 
@@ -303,6 +333,128 @@ fn dispatch_action(
 
         _ => {}
     }
+}
+
+fn print_help() {
+    println!("ani-tui {VERSION} — Terminal UI for browsing and streaming anime");
+    println!();
+    println!("USAGE:");
+    println!("  ani-tui              Launch the TUI");
+    println!("  ani-tui --update     Pull latest changes, rebuild, and reinstall");
+    println!("  ani-tui --uninstall  Remove ani-tui from your system");
+    println!("  ani-tui --version    Show version");
+    println!("  ani-tui --help       Show this help");
+}
+
+fn repo_path() -> Result<std::path::PathBuf> {
+    let data_dir = dirs::data_dir()
+        .ok_or_else(|| color_eyre::eyre::eyre!("Could not determine data directory"))?;
+    let path_file = data_dir.join("ani-tui").join(".repo-path");
+    if !path_file.exists() {
+        color_eyre::eyre::bail!(
+            "Repo path not found. Please reinstall by running install.sh from the repo directory."
+        );
+    }
+    let path = std::fs::read_to_string(&path_file)?.trim().to_string();
+    Ok(std::path::PathBuf::from(path))
+}
+
+fn self_update() -> Result<()> {
+    let repo = repo_path()?;
+    println!("Updating ani-tui from {}", repo.display());
+
+    println!("Pulling latest changes...");
+    let status = Command::new("git")
+        .args(["pull"])
+        .current_dir(&repo)
+        .status()?;
+    if !status.success() {
+        color_eyre::eyre::bail!("git pull failed");
+    }
+
+    println!("Building release...");
+    let status = Command::new("cargo")
+        .args(["build", "--release"])
+        .current_dir(&repo)
+        .status()?;
+    if !status.success() {
+        color_eyre::eyre::bail!("cargo build failed");
+    }
+
+    let binary = repo.join("target/release/ani-tui");
+    let install_dir = std::path::PathBuf::from("/usr/local/bin/ani-tui");
+
+    println!("Installing to {}...", install_dir.display());
+    let status = Command::new("sudo")
+        .args(["cp", &binary.to_string_lossy(), &install_dir.to_string_lossy()])
+        .status()?;
+    if !status.success() {
+        color_eyre::eyre::bail!("Failed to copy binary (sudo cp failed)");
+    }
+
+    println!("ani-tui updated successfully!");
+    Ok(())
+}
+
+fn self_uninstall() -> Result<()> {
+    let binary = "/usr/local/bin/ani-tui";
+
+    // Prompt for confirmation
+    println!("This will remove:");
+    println!("  - {binary}");
+
+    let config_dir = dirs::config_dir().map(|d| d.join("ani-tui"));
+    let data_dir = dirs::data_dir().map(|d| d.join("ani-tui"));
+
+    if let Some(ref dir) = config_dir {
+        if dir.exists() {
+            println!("  - {} (config)", dir.display());
+        }
+    }
+    if let Some(ref dir) = data_dir {
+        if dir.exists() {
+            println!("  - {} (data/history)", dir.display());
+        }
+    }
+
+    print!("\nProceed? [y/N] ");
+    use std::io::Write;
+    std::io::stdout().flush()?;
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    if !input.trim().eq_ignore_ascii_case("y") {
+        println!("Cancelled.");
+        return Ok(());
+    }
+
+    // Remove binary
+    if std::path::Path::new(binary).exists() {
+        let status = Command::new("sudo")
+            .args(["rm", binary])
+            .status()?;
+        if !status.success() {
+            color_eyre::eyre::bail!("Failed to remove binary");
+        }
+        println!("Removed {binary}");
+    }
+
+    // Remove config and data directories
+    if let Some(dir) = config_dir {
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)?;
+            println!("Removed {}", dir.display());
+        }
+    }
+    if let Some(dir) = data_dir {
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)?;
+            println!("Removed {}", dir.display());
+        }
+    }
+
+    println!("\nani-tui uninstalled successfully!");
+    Ok(())
 }
 
 fn fuzzy_match(a: &str, b: &str) -> bool {
