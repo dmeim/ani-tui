@@ -373,11 +373,19 @@ fn provider_label(p: crate::config::MetadataProvider) -> String {
         crate::config::MetadataProvider::Jikan => "Jikan (MAL)".to_string(),
         crate::config::MetadataProvider::Anilist => "AniList".to_string(),
         crate::config::MetadataProvider::Anidb => "AniDB".to_string(),
+        crate::config::MetadataProvider::Kitsu => "Kitsu".to_string(),
+        crate::config::MetadataProvider::Notify => "Notify.moe".to_string(),
     }
 }
 
 fn provider_options() -> Vec<String> {
-    vec!["Jikan (MAL)".to_string(), "AniList".to_string(), "AniDB".to_string()]
+    vec![
+        "Jikan (MAL)".to_string(),
+        "AniList".to_string(),
+        "AniDB".to_string(),
+        "Kitsu".to_string(),
+        "Notify.moe".to_string(),
+    ]
 }
 
 /// Get the list of option labels for a given setting row.

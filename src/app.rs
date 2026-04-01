@@ -648,9 +648,9 @@ impl App {
     /// How many options does a given setting row have?
     fn settings_option_count(&self, row: usize) -> usize {
         match row {
-            0 => 3, // series provider: Jikan, AniList, AniDB
-            1 => 3, // episode provider: Jikan, AniList, AniDB
-            2 => 3, // poster provider: Jikan, AniList, AniDB
+            0 => 5, // series provider: Jikan, AniList, AniDB, Kitsu, Notify
+            1 => 5, // episode provider: Jikan, AniList, AniDB, Kitsu, Notify
+            2 => 5, // poster provider: Jikan, AniList, AniDB, Kitsu, Notify
             3 => crate::player::detect_installed().len() + 1, // players + Custom
             4 => 2, // audio: Sub, Dub
             5 => 5, // min quality: Any, 360p, 480p, 720p, 1080p
@@ -708,9 +708,9 @@ impl App {
 
     fn handle_setup_normal(&mut self, code: KeyCode) -> Option<Action> {
         let max_items = match self.setup_step {
-            0 => 3, // series provider: jikan, anilist, anidb
-            1 => 3, // episode provider
-            2 => 3, // poster provider
+            0 => 5, // series provider: jikan, anilist, anidb, kitsu, notify
+            1 => 5, // episode provider
+            2 => 5, // poster provider
             3 => {   // players: detected count + custom
                 let detected = crate::player::detect_installed();
                 detected.len() + 1
@@ -807,6 +807,8 @@ fn provider_to_index(p: MetadataProvider) -> usize {
         MetadataProvider::Jikan => 0,
         MetadataProvider::Anilist => 1,
         MetadataProvider::Anidb => 2,
+        MetadataProvider::Kitsu => 3,
+        MetadataProvider::Notify => 4,
     }
 }
 
@@ -814,7 +816,9 @@ fn index_to_provider(i: usize) -> MetadataProvider {
     match i {
         0 => MetadataProvider::Jikan,
         1 => MetadataProvider::Anilist,
-        _ => MetadataProvider::Anidb,
+        2 => MetadataProvider::Anidb,
+        3 => MetadataProvider::Kitsu,
+        _ => MetadataProvider::Notify,
     }
 }
 

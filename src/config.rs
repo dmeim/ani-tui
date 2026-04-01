@@ -53,6 +53,8 @@ pub enum MetadataProvider {
     Jikan,
     Anilist,
     Anidb,
+    Kitsu,
+    Notify,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -189,6 +191,20 @@ episode_provider = "anilist"
         assert_eq!(config.general.poster_provider, MetadataProvider::Jikan); // default
         assert_eq!(config.general.default_mode, AudioMode::Sub);
         assert_eq!(config.player.name, PlayerName::Mpv);
+    }
+
+    #[test]
+    fn deserializes_new_providers() {
+        let partial = r#"
+[general]
+series_provider = "kitsu"
+episode_provider = "kitsu"
+poster_provider = "notify"
+"#;
+        let config: Config = toml::from_str(partial).unwrap();
+        assert_eq!(config.general.series_provider, MetadataProvider::Kitsu);
+        assert_eq!(config.general.episode_provider, MetadataProvider::Kitsu);
+        assert_eq!(config.general.poster_provider, MetadataProvider::Notify);
     }
 
     #[test]

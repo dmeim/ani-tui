@@ -105,6 +105,8 @@ fn series_provider_options() -> (Vec<(&'static str, &'static str)>, String) {
         ("Jikan (MAL)", "Ratings, genres, episode count, synopsis"),
         ("AniList", "Free, modern API, ratings + genres"),
         ("AniDB", "Comprehensive database, requires client registration"),
+        ("Kitsu", "JSON:API, ratings + genres, no auth"),
+        ("Notify.moe", "Open-source tracker, ratings + genres"),
     ];
     (items, "Series details provider (ratings, genres, etc.)".to_string())
 }
@@ -114,6 +116,8 @@ fn episode_provider_options() -> (Vec<(&'static str, &'static str)>, String) {
         ("Jikan (MAL)", "Episode titles, synopses, filler flags"),
         ("AniList", "Limited episode data"),
         ("AniDB", "Comprehensive episode database, requires registration"),
+        ("Kitsu", "Episode titles + synopses, no auth"),
+        ("Notify.moe", "No episode details available"),
     ];
     (items, "Episode details provider (titles, synopses)".to_string())
 }
@@ -123,6 +127,8 @@ fn poster_provider_options() -> (Vec<(&'static str, &'static str)>, String) {
         ("Jikan (MAL)", "MAL cover images"),
         ("AniList", "High-quality cover art"),
         ("AniDB", "AniDB cover images, requires registration"),
+        ("Kitsu", "High-quality poster images"),
+        ("Notify.moe", "Notify.moe cover images"),
     ];
     (items, "Poster provider (cover images)".to_string())
 }
