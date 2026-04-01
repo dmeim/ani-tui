@@ -322,14 +322,14 @@ fn render_settings_modal(frame: &mut Frame, app: &mut App) {
     // Status bar
     let status = if app.settings_editing {
         Line::from(vec![
-            Span::styled(" j/k", Style::default().fg(Color::Yellow)),
+            Span::styled(" ↑/↓/j/k", Style::default().fg(Color::Yellow)),
             Span::raw(" select  "),
             Span::styled("Enter/Esc", Style::default().fg(Color::Yellow)),
             Span::raw(" confirm"),
         ])
     } else {
         Line::from(vec![
-            Span::styled(" j/k", Style::default().fg(Color::Yellow)),
+            Span::styled(" ↑/↓/j/k", Style::default().fg(Color::Yellow)),
             Span::raw(" navigate  "),
             Span::styled("Enter", Style::default().fg(Color::Yellow)),
             Span::raw(" change  "),

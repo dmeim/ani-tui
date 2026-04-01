@@ -306,14 +306,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let status = Line::from(vec![
             Span::styled(" Esc", Style::default().fg(Color::Yellow)),
             Span::raw(" back  "),
-            Span::styled("j/k", Style::default().fg(Color::Yellow)),
+            Span::styled("↑/↓/j/k", Style::default().fg(Color::Yellow)),
             Span::raw(" navigate  "),
             Span::styled("Enter", Style::default().fg(Color::Yellow)),
             Span::raw(" play episode  "),
-            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::styled("Tab", Style::default().fg(Color::Yellow)),
             Span::raw(" settings  "),
-            Span::styled("q", Style::default().fg(Color::Yellow)),
-            Span::raw(" quit"),
         ]);
         frame.render_widget(Paragraph::new(status), chunks[3]);
     }

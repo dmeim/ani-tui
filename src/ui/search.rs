@@ -396,13 +396,13 @@ fn render_results(frame: &mut Frame, app: &mut App) {
             Span::styled(result_indicator, Style::default().fg(Color::Cyan)),
             Span::styled("s", Style::default().fg(Color::Yellow)),
             Span::raw(" search  "),
-            Span::styled("j/k", Style::default().fg(Color::Yellow)),
+            Span::styled("↑/↓/j/k", Style::default().fg(Color::Yellow)),
             Span::raw(" navigate  "),
             Span::styled("Enter", Style::default().fg(Color::Yellow)),
             Span::raw(" select  "),
-            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::styled("Tab", Style::default().fg(Color::Yellow)),
             Span::raw(" settings  "),
-            Span::styled("q", Style::default().fg(Color::Yellow)),
+            Span::styled("Esc", Style::default().fg(Color::Yellow)),
             Span::raw(" quit"),
         ]);
         frame.render_widget(Paragraph::new(status), chunks[1]);

@@ -90,7 +90,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     // Status bar
     let status = Line::from(vec![
-        Span::styled(" j/k", Style::default().fg(Color::Yellow)),
+        Span::styled(" ↑/↓/j/k", Style::default().fg(Color::Yellow)),
         Span::raw(" navigate  "),
         Span::styled("Enter", Style::default().fg(Color::Yellow)),
         Span::raw(" select  "),
