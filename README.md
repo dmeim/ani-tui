@@ -184,6 +184,20 @@ src/
 | `dirs` | XDG directory resolution |
 | `color-eyre` | Error handling |
 
+## Releasing
+
+To publish a new release:
+
+1. Bump the version in `Cargo.toml`
+2. Commit the change
+3. Tag and push:
+   ```sh
+   git tag v0.x.x
+   git push && git push --tags
+   ```
+
+GitHub Actions will build binaries for macOS (ARM), Linux (x86_64), and Windows (x86_64), then create a GitHub Release with all archives attached.
+
 ## Roadmap
 
 - [ ] OpenSubtitles integration (search + download subtitles)

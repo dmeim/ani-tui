@@ -44,10 +44,11 @@ GitHub Actions (`.github/workflows/release.yml`) builds release binaries on ever
 
 | Target | Runner |
 |--------|--------|
-| `x86_64-apple-darwin` | `macos-13` |
 | `aarch64-apple-darwin` | `macos-latest` |
 | `x86_64-unknown-linux-gnu` | `ubuntu-latest` |
 | `x86_64-pc-windows-msvc` | `windows-latest` |
+
+CI builds use `--no-default-features` to avoid the `chafa` system dependency. The `chafa` Cargo feature (enabled by default for local builds) provides halfblock image fallback but requires `libchafa-dev` installed on the system. Without it, image rendering still works via Kitty/Sixel/iTerm2 protocols.
 
 On tag push, `softprops/action-gh-release` creates a GitHub Release with all archives attached. Asset naming: `ani-tui-<target>.tar.gz` (Unix) or `.zip` (Windows).
 
@@ -55,7 +56,17 @@ On tag push, `softprops/action-gh-release` creates a GitHub Release with all arc
 
 **Self-update** (`--update` flag in `main.rs`) uses `reqwest::blocking` to query the GitHub Releases API, compare versions, and download+install the correct binary for the current platform. No git or cargo needed.
 
-**To publish a release:** bump version in `Cargo.toml`, commit, then `git tag v0.x.x && git push --tags`.
+**To publish a release:**
+
+1. Bump version in `Cargo.toml`
+2. Commit the version bump
+3. Tag and push:
+   ```sh
+   git tag v0.x.x
+   git push && git push --tags
+   ```
+
+The tag push triggers the full workflow: build all targets → create GitHub Release with binaries attached.
 
 ## Key Design Decisions
 
