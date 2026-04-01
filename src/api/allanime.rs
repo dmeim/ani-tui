@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use color_eyre::Result;
 use reqwest::Client;
 use serde_json::Value;
@@ -10,6 +12,12 @@ const ALLANIME_BASE: &str = "allanime.day";
 const ALLANIME_REFERER: &str = "https://allmanga.to";
 const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0";
+
+/// Known working providers (same ones ani-cli uses)
+const KNOWN_PROVIDERS: &[&str] = &["Default", "Yt-mp4", "S-mp4", "Luf-Mp4"];
+
+/// Timeout for individual provider link fetches
+const PROVIDER_FETCH_TIMEOUT: Duration = Duration::from_secs(4);
 
 const SEARCH_GQL: &str = r#"query( $search: SearchInput $limit: Int $page: Int $translationType: VaildTranslationTypeEnumType $countryOrigin: VaildCountryOriginEnumType ) { shows( search: $search limit: $limit page: $page translationType: $translationType countryOrigin: $countryOrigin ) { edges { _id name availableEpisodes __typename } }}"#;
 
@@ -26,6 +34,9 @@ impl AllAnimeClient {
     pub fn new() -> Result<Self> {
         let client = Client::builder()
             .user_agent(USER_AGENT)
+            .http1_only()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
             .build()?;
         Ok(Self { client })
     }
@@ -162,30 +173,46 @@ impl AllAnimeClient {
             .cloned()
             .unwrap_or_default();
 
-        let mut streams = Vec::new();
+        // Only fetch from known working providers (same as ani-cli), in parallel with timeouts
+        let tasks: Vec<_> = source_urls
+            .iter()
+            .filter_map(|source| {
+                let raw_url = source["sourceUrl"].as_str()?;
+                let provider = source["sourceName"]
+                    .as_str()
+                    .unwrap_or("unknown");
 
-        for source in &source_urls {
-            let Some(raw_url) = source["sourceUrl"].as_str() else {
-                continue;
-            };
-            let provider = source["sourceName"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_string();
+                // Skip providers not in the known-good list
+                if !KNOWN_PROVIDERS.iter().any(|&p| p.eq_ignore_ascii_case(provider)) {
+                    return None;
+                }
 
-            // URLs prefixed with "--" need decryption
-            let decoded_path = if let Some(encoded) = raw_url.strip_prefix("--") {
-                decrypt(encoded)
-            } else {
-                raw_url.to_string()
-            };
+                let provider = provider.to_string();
+                let decoded_path = if let Some(encoded) = raw_url.strip_prefix("--") {
+                    decrypt(encoded)
+                } else {
+                    raw_url.to_string()
+                };
 
-            // Fetch the actual video links from the provider endpoint
-            let provider_streams = self.fetch_provider_links(&decoded_path, &provider).await;
-            if let Ok(mut s) = provider_streams {
-                streams.append(&mut s);
-            }
-        }
+                let client = self.clone();
+                Some(async move {
+                    tokio::time::timeout(
+                        PROVIDER_FETCH_TIMEOUT,
+                        client.fetch_provider_links(&decoded_path, &provider),
+                    )
+                    .await
+                    .ok()
+                    .and_then(|r| r.ok())
+                    .unwrap_or_default()
+                })
+            })
+            .collect();
+
+        let results = futures::future::join_all(tasks).await;
+        let mut streams: Vec<_> = results.into_iter().flatten().collect();
+
+        // Best quality first
+        streams.sort_by(|a, b| b.quality.cmp(&a.quality));
 
         Ok(streams)
     }

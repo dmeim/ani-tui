@@ -292,6 +292,7 @@ fn dispatch_action(
                         .await
                     {
                         Ok(streams) if !streams.is_empty() => {
+                            // Streams are already sorted by quality (best first)
                             let stream = &streams[0];
                             let opts = player::PlayOptions {
                                 url: stream.url.clone(),
@@ -299,21 +300,18 @@ fn dispatch_action(
                                 referer: stream.referer.clone(),
                                 subtitle_path: None,
                             };
-                            match player::launch(
+                            // Update UI before launching player
+                            let _ = tx.send(Action::StreamsResolved(streams));
+                            if let Err(e) = player::launch(
                                 player_name,
                                 custom_cmd.as_deref(),
                                 opts,
                             )
                             .await
                             {
-                                Ok(()) => {
-                                    let _ = tx.send(Action::StreamsResolved(streams));
-                                }
-                                Err(e) => {
-                                    let _ = tx.send(Action::PlayError(format!(
-                                        "Player failed: {e}"
-                                    )));
-                                }
+                                let _ = tx.send(Action::PlayError(format!(
+                                    "Player failed: {e}"
+                                )));
                             }
                         }
                         Ok(_) => {
