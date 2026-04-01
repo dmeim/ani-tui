@@ -461,9 +461,30 @@ fn print_help() {
     println!("  ani-tui --help       Show this help");
 }
 
+fn data_dir() -> Result<std::path::PathBuf> {
+    // On Windows, dirs::data_dir() returns %APPDATA% (matches install.ps1).
+    // On macOS, ~/Library/Application Support (matches install.sh).
+    // On Linux, $XDG_DATA_HOME or ~/.local/share (matches install.sh).
+    dirs::data_dir()
+        .ok_or_else(|| color_eyre::eyre::eyre!("Could not determine data directory"))
+}
+
+fn install_dir() -> std::path::PathBuf {
+    if cfg!(windows) {
+        // Matches install.ps1: %LOCALAPPDATA%\ani-tui\bin
+        let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
+            dirs::data_local_dir()
+                .map(|d| d.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        });
+        std::path::PathBuf::from(local).join("ani-tui").join("bin")
+    } else {
+        std::path::PathBuf::from("/usr/local/bin")
+    }
+}
+
 fn repo_path() -> Result<std::path::PathBuf> {
-    let data_dir = dirs::data_dir()
-        .ok_or_else(|| color_eyre::eyre::eyre!("Could not determine data directory"))?;
+    let data_dir = data_dir()?;
     let path_file = data_dir.join("ani-tui").join(".repo-path");
     if !path_file.exists() {
         color_eyre::eyre::bail!(
@@ -496,15 +517,21 @@ fn self_update() -> Result<()> {
         color_eyre::eyre::bail!("cargo build failed");
     }
 
-    let binary = repo.join("target/release/ani-tui");
-    let install_dir = std::path::PathBuf::from("/usr/local/bin/ani-tui");
+    let binary_name = if cfg!(windows) { "ani-tui.exe" } else { "ani-tui" };
+    let binary = repo.join("target/release").join(binary_name);
+    let dest = install_dir().join(binary_name);
 
-    println!("Installing to {}...", install_dir.display());
-    let status = Command::new("sudo")
-        .args(["cp", &binary.to_string_lossy(), &install_dir.to_string_lossy()])
-        .status()?;
-    if !status.success() {
-        color_eyre::eyre::bail!("Failed to copy binary (sudo cp failed)");
+    println!("Installing to {}...", dest.display());
+    if cfg!(windows) {
+        std::fs::create_dir_all(dest.parent().unwrap())?;
+        std::fs::copy(&binary, &dest)?;
+    } else {
+        let status = Command::new("sudo")
+            .args(["cp", &binary.to_string_lossy(), &dest.to_string_lossy()])
+            .status()?;
+        if !status.success() {
+            color_eyre::eyre::bail!("Failed to copy binary (sudo cp failed)");
+        }
     }
 
     println!("ani-tui updated successfully!");
@@ -512,14 +539,16 @@ fn self_update() -> Result<()> {
 }
 
 fn self_uninstall() -> Result<()> {
-    let binary = "/usr/local/bin/ani-tui";
+    let binary_name = if cfg!(windows) { "ani-tui.exe" } else { "ani-tui" };
+    let binary = install_dir().join(binary_name);
+    let binary_display = binary.display().to_string();
 
     // Prompt for confirmation
     println!("This will remove:");
-    println!("  - {binary}");
+    println!("  - {binary_display}");
 
     let config_dir = dirs::config_dir().map(|d| d.join("ani-tui"));
-    let data_dir = dirs::data_dir().map(|d| d.join("ani-tui"));
+    let data_dir = data_dir().ok().map(|d| d.join("ani-tui"));
 
     if let Some(ref dir) = config_dir {
         if dir.exists() {
@@ -544,14 +573,18 @@ fn self_uninstall() -> Result<()> {
     }
 
     // Remove binary
-    if std::path::Path::new(binary).exists() {
-        let status = Command::new("sudo")
-            .args(["rm", binary])
-            .status()?;
-        if !status.success() {
-            color_eyre::eyre::bail!("Failed to remove binary");
+    if binary.exists() {
+        if cfg!(windows) {
+            std::fs::remove_file(&binary)?;
+        } else {
+            let status = Command::new("sudo")
+                .args(["rm", &binary_display])
+                .status()?;
+            if !status.success() {
+                color_eyre::eyre::bail!("Failed to remove binary");
+            }
         }
-        println!("Removed {binary}");
+        println!("Removed {binary_display}");
     }
 
     // Remove config and data directories

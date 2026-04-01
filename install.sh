@@ -1,10 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="ani-tui"
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ani-tui"
+
+# Platform-appropriate data and install directories
+OS="$(uname -s)"
+case "$OS" in
+    Darwin)
+        DATA_DIR="$HOME/Library/Application Support/ani-tui"
+        INSTALL_DIR="/usr/local/bin"
+        ;;
+    Linux)
+        DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ani-tui"
+        INSTALL_DIR="/usr/local/bin"
+        ;;
+    *)
+        echo "Unsupported OS: $OS. On Windows, use install.ps1 instead."
+        exit 1
+        ;;
+esac
 
 echo "Building ani-tui (release)..."
 cargo build --release --manifest-path "$REPO_DIR/Cargo.toml"
