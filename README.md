@@ -46,16 +46,33 @@ The TUI handles all interaction — no `fzf`, no bash, no piping. You get a navi
 
 ### Prerequisites
 
-- Rust 1.85+ (install via [rustup](https://rustup.rs))
 - A supported video player (mpv, iina, VLC, or QuickTime)
 
-### Install
+### macOS / Linux
 
 ```sh
-git clone https://github.com/dmeim/ani-tui.git && cd ani-tui && ./install.sh
+curl -fsSL https://raw.githubusercontent.com/dmeim/ani-tui/master/install.sh | bash
 ```
 
-This builds a release binary and installs it to `/usr/local/bin/ani-tui`. You can then run `ani-tui` from anywhere.
+This downloads the latest prebuilt binary for your platform and installs it to `/usr/local/bin/ani-tui`. No Rust toolchain required.
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/dmeim/ani-tui/master/install.ps1 | iex
+```
+
+Installs to `%LOCALAPPDATA%\ani-tui\bin\` and adds it to your user PATH.
+
+### Build from source
+
+If you prefer to build from source (requires Rust 1.85+):
+
+```sh
+git clone https://github.com/dmeim/ani-tui.git && cd ani-tui
+cargo build --release
+# copy target/release/ani-tui to a directory on your PATH
+```
 
 ### Update
 
@@ -63,7 +80,7 @@ This builds a release binary and installs it to `/usr/local/bin/ani-tui`. You ca
 ani-tui --update
 ```
 
-Pulls the latest changes from the repo, rebuilds, and reinstalls the binary.
+Downloads and installs the latest release from GitHub.
 
 ### Uninstall
 
@@ -71,7 +88,7 @@ Pulls the latest changes from the repo, rebuilds, and reinstalls the binary.
 ani-tui --uninstall
 ```
 
-Removes the binary, config (`~/.config/ani-tui/`), and data (`~/.local/share/ani-tui/`) after confirmation.
+Removes the binary, config, and data directories after confirmation.
 
 ## Configuration
 

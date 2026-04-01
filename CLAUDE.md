@@ -38,6 +38,25 @@ cargo fmt -- --check         # check formatting without modifying
 
 **Player layer** (`src/player/`): `Player` trait with implementations for each supported player. Spawns external process via `tokio::process::Command`.
 
+## CI/CD & Release
+
+GitHub Actions (`.github/workflows/release.yml`) builds release binaries on every push to `master` and on tag push (`v*`). Targets:
+
+| Target | Runner |
+|--------|--------|
+| `x86_64-apple-darwin` | `macos-13` |
+| `aarch64-apple-darwin` | `macos-latest` |
+| `x86_64-unknown-linux-gnu` | `ubuntu-latest` |
+| `x86_64-pc-windows-msvc` | `windows-latest` |
+
+On tag push, `softprops/action-gh-release` creates a GitHub Release with all archives attached. Asset naming: `ani-tui-<target>.tar.gz` (Unix) or `.zip` (Windows).
+
+**Install scripts** (`install.sh`, `install.ps1`) download prebuilt binaries from GitHub Releases — no Rust toolchain required on the user's machine.
+
+**Self-update** (`--update` flag in `main.rs`) uses `reqwest::blocking` to query the GitHub Releases API, compare versions, and download+install the correct binary for the current platform. No git or cargo needed.
+
+**To publish a release:** bump version in `Cargo.toml`, commit, then `git tag v0.x.x && git push --tags`.
+
 ## Key Design Decisions
 
 - **Wrapper, not reimplementation**: uses the same AllAnime API as ani-cli but calls it directly from Rust rather than shelling out to the bash script.

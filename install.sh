@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+REPO="dmeim/ani-tui"
 BINARY_NAME="ani-tui"
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Platform-appropriate data and install directories
+# Detect platform and architecture
 OS="$(uname -s)"
+ARCH="$(uname -m)"
+
 case "$OS" in
     Darwin)
-        DATA_DIR="$HOME/Library/Application Support/ani-tui"
+        case "$ARCH" in
+            arm64)  TARGET="aarch64-apple-darwin" ;;
+            x86_64) TARGET="x86_64-apple-darwin" ;;
+            *)      echo "Unsupported architecture: $ARCH"; exit 1 ;;
+        esac
         INSTALL_DIR="/usr/local/bin"
         ;;
     Linux)
-        DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ani-tui"
+        case "$ARCH" in
+            x86_64) TARGET="x86_64-unknown-linux-gnu" ;;
+            *)      echo "Unsupported architecture: $ARCH"; exit 1 ;;
+        esac
         INSTALL_DIR="/usr/local/bin"
         ;;
     *)
@@ -21,22 +30,42 @@ case "$OS" in
         ;;
 esac
 
-echo "Building ani-tui (release)..."
-cargo build --release --manifest-path "$REPO_DIR/Cargo.toml"
+echo "Detected platform: $TARGET"
+
+# Fetch latest release info from GitHub
+echo "Fetching latest release..."
+RELEASE_URL="https://api.github.com/repos/$REPO/releases/latest"
+
+if command -v jq &>/dev/null; then
+    DOWNLOAD_URL=$(curl -fsSL "$RELEASE_URL" | jq -r ".assets[] | select(.name | contains(\"$TARGET\")) | .browser_download_url")
+else
+    DOWNLOAD_URL=$(curl -fsSL "$RELEASE_URL" | grep -o "\"browser_download_url\": *\"[^\"]*${TARGET}[^\"]*\"" | head -1 | cut -d'"' -f4)
+fi
+
+if [ -z "$DOWNLOAD_URL" ]; then
+    echo "Error: Could not find a release for $TARGET."
+    echo "Check https://github.com/$REPO/releases for available builds."
+    exit 1
+fi
+
+# Download and extract
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+
+echo "Downloading $DOWNLOAD_URL..."
+curl -fSL "$DOWNLOAD_URL" -o "$TMPDIR/ani-tui.tar.gz"
+
+echo "Extracting..."
+tar xzf "$TMPDIR/ani-tui.tar.gz" -C "$TMPDIR"
 
 echo "Installing to $INSTALL_DIR/$BINARY_NAME..."
-sudo cp "$REPO_DIR/target/release/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
-sudo chmod +x "$INSTALL_DIR/$BINARY_NAME"
-
-# Store repo path so --update knows where to rebuild from
-mkdir -p "$DATA_DIR"
-echo "$REPO_DIR" > "$DATA_DIR/.repo-path"
+sudo install -m 755 "$TMPDIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
 
 echo ""
 echo "ani-tui installed successfully!"
 echo ""
 echo "Usage:"
 echo "  ani-tui              Launch the TUI"
-echo "  ani-tui --update     Pull latest changes and reinstall"
+echo "  ani-tui --update     Download and install the latest release"
 echo "  ani-tui --uninstall  Remove ani-tui from your system"
 echo "  ani-tui --version    Show version"

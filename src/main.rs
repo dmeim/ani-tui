@@ -455,23 +455,16 @@ fn print_help() {
     println!();
     println!("USAGE:");
     println!("  ani-tui              Launch the TUI");
-    println!("  ani-tui --update     Pull latest changes, rebuild, and reinstall");
+    println!("  ani-tui --update     Download and install the latest release");
     println!("  ani-tui --uninstall  Remove ani-tui from your system");
     println!("  ani-tui --version    Show version");
     println!("  ani-tui --help       Show this help");
 }
 
-fn data_dir() -> Result<std::path::PathBuf> {
-    // On Windows, dirs::data_dir() returns %APPDATA% (matches install.ps1).
-    // On macOS, ~/Library/Application Support (matches install.sh).
-    // On Linux, $XDG_DATA_HOME or ~/.local/share (matches install.sh).
-    dirs::data_dir()
-        .ok_or_else(|| color_eyre::eyre::eyre!("Could not determine data directory"))
-}
+const REPO: &str = "dmeim/ani-tui";
 
 fn install_dir() -> std::path::PathBuf {
     if cfg!(windows) {
-        // Matches install.ps1: %LOCALAPPDATA%\ani-tui\bin
         let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
             dirs::data_local_dir()
                 .map(|d| d.to_string_lossy().into_owned())
@@ -483,58 +476,127 @@ fn install_dir() -> std::path::PathBuf {
     }
 }
 
-fn repo_path() -> Result<std::path::PathBuf> {
-    let data_dir = data_dir()?;
-    let path_file = data_dir.join("ani-tui").join(".repo-path");
-    if !path_file.exists() {
-        color_eyre::eyre::bail!(
-            "Repo path not found. Please reinstall by running install.sh from the repo directory."
-        );
+fn current_target() -> &'static str {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => "aarch64-apple-darwin",
+        ("macos", "x86_64") => "x86_64-apple-darwin",
+        ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
+        ("windows", "x86_64") => "x86_64-pc-windows-msvc",
+        (os, arch) => {
+            eprintln!("Unsupported platform: {os}/{arch}");
+            std::process::exit(1);
+        }
     }
-    let path = std::fs::read_to_string(&path_file)?.trim().to_string();
-    Ok(std::path::PathBuf::from(path))
 }
 
 fn self_update() -> Result<()> {
-    let repo = repo_path()?;
-    println!("Updating ani-tui from {}", repo.display());
+    let target = current_target();
+    println!("Checking for updates (platform: {target})...");
 
-    println!("Pulling latest changes...");
-    let status = Command::new("git")
-        .args(["pull"])
-        .current_dir(&repo)
-        .status()?;
-    if !status.success() {
-        color_eyre::eyre::bail!("git pull failed");
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("ani-tui-updater")
+        .build()?;
+
+    let release: serde_json::Value = client
+        .get(format!("https://api.github.com/repos/{REPO}/releases/latest"))
+        .send()?
+        .error_for_status()
+        .map_err(|_| color_eyre::eyre::eyre!(
+            "No releases found. Check https://github.com/{REPO}/releases"
+        ))?
+        .json()?;
+
+    let tag = release["tag_name"]
+        .as_str()
+        .unwrap_or("unknown");
+    let remote_version = tag.strip_prefix('v').unwrap_or(tag);
+
+    if remote_version == VERSION {
+        println!("Already up to date (v{VERSION}).");
+        return Ok(());
     }
 
-    println!("Building release...");
-    let status = Command::new("cargo")
-        .args(["build", "--release"])
-        .current_dir(&repo)
-        .status()?;
-    if !status.success() {
-        color_eyre::eyre::bail!("cargo build failed");
-    }
+    println!("New version available: v{remote_version} (current: v{VERSION})");
+
+    let assets = release["assets"]
+        .as_array()
+        .ok_or_else(|| color_eyre::eyre::eyre!("No assets in release"))?;
+
+    let asset = assets
+        .iter()
+        .find(|a| {
+            a["name"]
+                .as_str()
+                .is_some_and(|name| name.contains(target))
+        })
+        .ok_or_else(|| {
+            color_eyre::eyre::eyre!("No release asset found for {target}")
+        })?;
+
+    let download_url = asset["browser_download_url"]
+        .as_str()
+        .ok_or_else(|| color_eyre::eyre::eyre!("Missing download URL"))?;
+
+    println!("Downloading {download_url}...");
+    let archive_bytes = client.get(download_url).send()?.bytes()?;
+
+    let tmp_dir = std::env::temp_dir().join("ani-tui-update");
+    std::fs::create_dir_all(&tmp_dir)?;
 
     let binary_name = if cfg!(windows) { "ani-tui.exe" } else { "ani-tui" };
-    let binary = repo.join("target/release").join(binary_name);
-    let dest = install_dir().join(binary_name);
+    let extracted = tmp_dir.join(binary_name);
 
-    println!("Installing to {}...", dest.display());
     if cfg!(windows) {
-        std::fs::create_dir_all(dest.parent().unwrap())?;
-        std::fs::copy(&binary, &dest)?;
-    } else {
-        let status = Command::new("sudo")
-            .args(["cp", &binary.to_string_lossy(), &dest.to_string_lossy()])
+        let archive_path = tmp_dir.join("update.zip");
+        std::fs::write(&archive_path, &archive_bytes)?;
+        let status = Command::new("powershell")
+            .args([
+                "-Command",
+                &format!(
+                    "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
+                    archive_path.display(),
+                    tmp_dir.display()
+                ),
+            ])
             .status()?;
         if !status.success() {
-            color_eyre::eyre::bail!("Failed to copy binary (sudo cp failed)");
+            color_eyre::eyre::bail!("Failed to extract archive");
+        }
+    } else {
+        let archive_path = tmp_dir.join("update.tar.gz");
+        std::fs::write(&archive_path, &archive_bytes)?;
+        let status = Command::new("tar")
+            .args(["xzf", &archive_path.to_string_lossy(), "-C", &tmp_dir.to_string_lossy()])
+            .status()?;
+        if !status.success() {
+            color_eyre::eyre::bail!("Failed to extract archive");
         }
     }
 
-    println!("ani-tui updated successfully!");
+    let dest = install_dir().join(binary_name);
+    println!("Installing to {}...", dest.display());
+
+    if cfg!(windows) {
+        std::fs::create_dir_all(dest.parent().unwrap())?;
+        // On Windows, rename current exe out of the way first
+        let old = dest.with_extension("old.exe");
+        if dest.exists() {
+            let _ = std::fs::rename(&dest, &old);
+        }
+        std::fs::copy(&extracted, &dest)?;
+        let _ = std::fs::remove_file(&old);
+    } else {
+        let status = Command::new("sudo")
+            .args(["install", "-m", "755", &extracted.to_string_lossy(), &dest.to_string_lossy()])
+            .status()?;
+        if !status.success() {
+            color_eyre::eyre::bail!("Failed to install binary (sudo failed)");
+        }
+    }
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+
+    println!("ani-tui updated to v{remote_version}!");
     Ok(())
 }
 
@@ -548,7 +610,7 @@ fn self_uninstall() -> Result<()> {
     println!("  - {binary_display}");
 
     let config_dir = dirs::config_dir().map(|d| d.join("ani-tui"));
-    let data_dir = data_dir().ok().map(|d| d.join("ani-tui"));
+    let data_dir = dirs::data_dir().map(|d| d.join("ani-tui"));
 
     if let Some(ref dir) = config_dir {
         if dir.exists() {
