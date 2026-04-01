@@ -5,9 +5,13 @@ edition = "2024"
 description = "A terminal user interface for browsing and watching anime"
 license = "MIT"
 
+[features]
+default = ["chafa"]
+chafa = ["ratatui-image/chafa-dyn"]
+
 [dependencies]
 ratatui = "0.30"
-ratatui-image = "10"
+ratatui-image = { version = "10", default-features = false, features = ["crossterm", "image-defaults"] }
 crossterm = { version = "0.28", features = ["event-stream"] }
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"

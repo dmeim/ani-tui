@@ -10,11 +10,7 @@ ARCH="$(uname -m)"
 
 case "$OS" in
     Darwin)
-        case "$ARCH" in
-            arm64)  TARGET="aarch64-apple-darwin" ;;
-            x86_64) TARGET="x86_64-apple-darwin" ;;
-            *)      echo "Unsupported architecture: $ARCH"; exit 1 ;;
-        esac
+        TARGET="aarch64-apple-darwin"
         INSTALL_DIR="/usr/local/bin"
         ;;
     Linux)

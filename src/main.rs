@@ -478,8 +478,7 @@ fn install_dir() -> std::path::PathBuf {
 
 fn current_target() -> &'static str {
     match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => "aarch64-apple-darwin",
-        ("macos", "x86_64") => "x86_64-apple-darwin",
+        ("macos", _) => "aarch64-apple-darwin",
         ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
         ("windows", "x86_64") => "x86_64-pc-windows-msvc",
         (os, arch) => {
