@@ -21,7 +21,8 @@ use crate::api::allanime::AllAnimeClient;
 use crate::api::anilist::AniListClient;
 use crate::api::jikan::JikanClient;
 use crate::app::App;
-use crate::config::{Config, MetadataProvider};
+use crate::config::{Config, MetadataProvider, MinQuality};
+use crate::model::stream::StreamUrl;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -75,7 +76,7 @@ async fn main() -> Result<()> {
         // Check for async results (non-blocking)
         while let Ok(action) = async_rx.try_recv() {
             if let Some(follow_up) = app.handle_action(action) {
-                dispatch_action(follow_up, &app, &allanime, &anilist, &jikan, &async_tx);
+                dispatch_action(follow_up, &mut app, &allanime, &anilist, &jikan, &async_tx);
             }
         }
 
@@ -94,7 +95,7 @@ async fn main() -> Result<()> {
         }
 
         if let Some(follow_up) = app.handle_action(action) {
-            dispatch_action(follow_up, &app, &allanime, &anilist, &jikan, &async_tx);
+            dispatch_action(follow_up, &mut app, &allanime, &anilist, &jikan, &async_tx);
         }
 
         if app.should_quit {
@@ -110,7 +111,7 @@ async fn main() -> Result<()> {
 /// Spawn async work for actions that need API calls or player launching.
 fn dispatch_action(
     action: Action,
-    app: &App,
+    app: &mut App,
     allanime: &AllAnimeClient,
     anilist: &AniListClient,
     jikan: &JikanClient,
@@ -252,24 +253,104 @@ fn dispatch_action(
         }
 
         Action::FetchEpisodeSynopsis(mal_id, ep_num) => {
-            let tx = tx.clone();
+            let tx_synopsis = tx.clone();
             let jikan = jikan.clone();
             tokio::spawn(async move {
                 if let Ok(detail) = jikan.episode_detail(mal_id, ep_num).await
                     && let Some(synopsis) = detail.synopsis
                 {
-                    let _ = tx.send(Action::EpisodeSynopsisLoaded(
+                    let _ = tx_synopsis.send(Action::EpisodeSynopsisLoaded(
                         ep_num as f32,
                         synopsis,
                     ));
                 }
             });
+
+            // Also prefetch stream URLs for the highlighted episode
+            if let (Some(anime), Some(episode)) =
+                (&app.selected_anime, app.episodes.get(app.selected_episode))
+            {
+                let show_id = anime.id.clone();
+                let ep_str = format_episode_number(episode.number);
+                let mode = app.mode_str().to_string();
+                if !app.stream_cache.contains_key(&ep_str) {
+                    let tx_prefetch = tx.clone();
+                    let allanime = allanime.clone();
+                    tokio::spawn(async move {
+                        if let Ok(streams) = allanime
+                            .get_stream_urls(&show_id, &ep_str, &mode)
+                            .await
+                        {
+                            if !streams.is_empty() {
+                                let _ = tx_prefetch.send(Action::StreamsPrefetched(ep_str, streams));
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        Action::PrefetchStreams(show_id, ep_str, mode) => {
+            if !app.stream_cache.contains_key(&ep_str) {
+                let tx = tx.clone();
+                let allanime = allanime.clone();
+                tokio::spawn(async move {
+                    if let Ok(streams) = allanime
+                        .get_stream_urls(&show_id, &ep_str, &mode)
+                        .await
+                    {
+                        if !streams.is_empty() {
+                            let _ = tx.send(Action::StreamsPrefetched(ep_str, streams));
+                        }
+                    }
+                });
+            }
+        }
+
+        Action::PrefetchAllStreams(show_id, ep_strs, mode) => {
+            // Filter out already-cached episodes
+            let to_fetch: Vec<String> = ep_strs
+                .into_iter()
+                .filter(|ep| !app.stream_cache.contains_key(ep))
+                .collect();
+
+            if !to_fetch.is_empty() {
+                let tx = tx.clone();
+                let allanime = allanime.clone();
+                // Single coordinator task with a semaphore to limit concurrency
+                tokio::spawn(async move {
+                    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+                    let mut handles = Vec::with_capacity(to_fetch.len());
+                    for ep_str in to_fetch {
+                        let tx = tx.clone();
+                        let allanime = allanime.clone();
+                        let show_id = show_id.clone();
+                        let mode = mode.clone();
+                        let permit = sem.clone().acquire_owned().await;
+                        handles.push(tokio::spawn(async move {
+                            let _permit = permit;
+                            if let Ok(streams) = allanime
+                                .get_stream_urls(&show_id, &ep_str, &mode)
+                                .await
+                            {
+                                if !streams.is_empty() {
+                                    let _ = tx.send(Action::StreamsPrefetched(ep_str, streams));
+                                }
+                            }
+                        }));
+                    }
+                    for h in handles {
+                        let _ = h.await;
+                    }
+                });
+            }
         }
 
         Action::SelectEpisode(idx) => {
             let tx = tx.clone();
             let allanime = allanime.clone();
             let mode = app.mode_str().to_string();
+            let min_quality = app.config.general.min_quality;
 
             if let (Some(anime), Some(episode)) =
                 (&app.selected_anime, app.episodes.get(idx))
@@ -281,27 +362,20 @@ fn dispatch_action(
                 let player_name = app.config.player.name;
                 let custom_cmd = app.config.player.custom_command.clone();
 
-                // Show loading state immediately
-                let _ = tx.send(Action::PlayLoading(format!(
-                    "{title} — Episode {ep_display}"
-                )));
+                // Check prefetch cache first
+                let cached = app.stream_cache.remove(&ep_str);
 
-                tokio::spawn(async move {
-                    match allanime
-                        .get_stream_urls(&show_id, &ep_str, &mode)
-                        .await
-                    {
-                        Ok(streams) if !streams.is_empty() => {
-                            // Streams are already sorted by quality (best first)
-                            let stream = &streams[0];
-                            let opts = player::PlayOptions {
-                                url: stream.url.clone(),
-                                title: format!("{title} Episode {ep_display}"),
-                                referer: stream.referer.clone(),
-                                subtitle_path: None,
-                            };
-                            // Update UI before launching player
-                            let _ = tx.send(Action::StreamsResolved(streams));
+                if let Some(streams) = cached {
+                    // Cache hit — launch immediately
+                    if let Some(stream) = pick_stream(&streams, min_quality) {
+                        let opts = player::PlayOptions {
+                            url: stream.url.clone(),
+                            title: format!("{title} Episode {ep_display}"),
+                            referer: stream.referer.clone(),
+                            subtitle_path: None,
+                        };
+                        let _ = tx.send(Action::StreamsResolved(streams));
+                        tokio::spawn(async move {
                             if let Err(e) = player::launch(
                                 player_name,
                                 custom_cmd.as_deref(),
@@ -313,19 +387,62 @@ fn dispatch_action(
                                     "Player failed: {e}"
                                 )));
                             }
-                        }
-                        Ok(_) => {
-                            let _ = tx.send(Action::PlayError(
-                                "No streams found for this episode".to_string(),
-                            ));
-                        }
-                        Err(e) => {
-                            let _ = tx.send(Action::PlayError(format!(
-                                "Stream resolution failed: {e}"
-                            )));
-                        }
+                        });
+                    } else {
+                        let _ = tx.send(Action::PlayError(
+                            "No streams match your minimum quality setting".to_string(),
+                        ));
                     }
-                });
+                } else {
+                    // Cache miss — show loading and fetch
+                    let _ = tx.send(Action::PlayLoading(format!(
+                        "{title} — Episode {ep_display}"
+                    )));
+
+                    tokio::spawn(async move {
+                        match allanime
+                            .get_stream_urls(&show_id, &ep_str, &mode)
+                            .await
+                        {
+                            Ok(streams) if !streams.is_empty() => {
+                                if let Some(stream) = pick_stream(&streams, min_quality) {
+                                    let opts = player::PlayOptions {
+                                        url: stream.url.clone(),
+                                        title: format!("{title} Episode {ep_display}"),
+                                        referer: stream.referer.clone(),
+                                        subtitle_path: None,
+                                    };
+                                    let _ = tx.send(Action::StreamsResolved(streams));
+                                    if let Err(e) = player::launch(
+                                        player_name,
+                                        custom_cmd.as_deref(),
+                                        opts,
+                                    )
+                                    .await
+                                    {
+                                        let _ = tx.send(Action::PlayError(format!(
+                                            "Player failed: {e}"
+                                        )));
+                                    }
+                                } else {
+                                    let _ = tx.send(Action::PlayError(
+                                        "No streams match your minimum quality setting".to_string(),
+                                    ));
+                                }
+                            }
+                            Ok(_) => {
+                                let _ = tx.send(Action::PlayError(
+                                    "No streams found for this episode".to_string(),
+                                ));
+                            }
+                            Err(e) => {
+                                let _ = tx.send(Action::PlayError(format!(
+                                    "Stream resolution failed: {e}"
+                                )));
+                            }
+                        }
+                    });
+                }
             }
         }
 
@@ -467,4 +584,14 @@ fn format_episode_number(n: f32) -> String {
     } else {
         format!("{n}")
     }
+}
+
+/// Pick the best stream that meets the minimum quality.
+/// Streams are already sorted best-first, so find the first that passes.
+/// Falls back to the best available stream if none meet the minimum.
+fn pick_stream(streams: &[StreamUrl], min_quality: MinQuality) -> Option<&StreamUrl> {
+    streams
+        .iter()
+        .find(|s| min_quality.accepts(s.quality))
+        .or_else(|| streams.first())
 }

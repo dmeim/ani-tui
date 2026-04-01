@@ -173,8 +173,8 @@ impl AllAnimeClient {
             .cloned()
             .unwrap_or_default();
 
-        // Only fetch from known working providers (same as ani-cli), in parallel with timeouts
-        let tasks: Vec<_> = source_urls
+        // Fetch known providers in parallel, return as soon as we have usable streams
+        let mut tasks: futures::stream::FuturesUnordered<_> = source_urls
             .iter()
             .filter_map(|source| {
                 let raw_url = source["sourceUrl"].as_str()?;
@@ -182,7 +182,6 @@ impl AllAnimeClient {
                     .as_str()
                     .unwrap_or("unknown");
 
-                // Skip providers not in the known-good list
                 if !KNOWN_PROVIDERS.iter().any(|&p| p.eq_ignore_ascii_case(provider)) {
                     return None;
                 }
@@ -208,8 +207,27 @@ impl AllAnimeClient {
             })
             .collect();
 
-        let results = futures::future::join_all(tasks).await;
-        let mut streams: Vec<_> = results.into_iter().flatten().collect();
+        use futures::StreamExt;
+        let mut streams = Vec::new();
+
+        // Collect results as they arrive; once we have any streams, give remaining
+        // providers a brief window to also respond, then return immediately
+        while let Some(result) = tasks.next().await {
+            streams.extend(result);
+            if !streams.is_empty() {
+                // Brief grace period to collect any other fast providers
+                let grace = tokio::time::sleep(Duration::from_millis(200));
+                tokio::pin!(grace);
+                loop {
+                    tokio::select! {
+                        biased;
+                        Some(more) = tasks.next() => streams.extend(more),
+                        () = &mut grace => break,
+                    }
+                }
+                break;
+            }
+        }
 
         // Best quality first
         streams.sort_by(|a, b| b.quality.cmp(&a.quality));

@@ -20,6 +20,7 @@ pub struct GeneralConfig {
     pub episode_provider: MetadataProvider,
     pub poster_provider: MetadataProvider,
     pub default_mode: AudioMode,
+    pub min_quality: MinQuality,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -71,6 +72,38 @@ pub enum PlayerName {
     Vlc,
     Quicktime,
     Custom,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MinQuality {
+    /// Accept any quality
+    Any,
+    #[serde(rename = "360p")]
+    P360,
+    #[serde(rename = "480p")]
+    P480,
+    #[serde(rename = "720p")]
+    P720,
+    /// Default: prefer 1080p
+    #[default]
+    #[serde(rename = "1080p")]
+    P1080,
+}
+
+impl MinQuality {
+    /// Check if a stream quality meets this minimum.
+    /// `Quality::Unknown` always passes (we can't reject streams without resolution info).
+    pub fn accepts(self, quality: crate::model::stream::Quality) -> bool {
+        use crate::model::stream::Quality;
+        match self {
+            MinQuality::Any => true,
+            MinQuality::P360 => quality >= Quality::P360 || quality == Quality::Unknown,
+            MinQuality::P480 => quality >= Quality::P480 || quality == Quality::Unknown,
+            MinQuality::P720 => quality >= Quality::P720 || quality == Quality::Unknown,
+            MinQuality::P1080 => quality >= Quality::P1080 || quality == Quality::Unknown,
+        }
+    }
 }
 
 // Defaults

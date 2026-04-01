@@ -188,19 +188,20 @@ fn render_settings_modal(frame: &mut Frame, app: &mut App) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // 5 setting rows + status bar
+    // 6 setting rows + status bar
     let chunks = Layout::vertical([
         Constraint::Length(2), // Series Details Provider
         Constraint::Length(2), // Episode Details Provider
         Constraint::Length(2), // Poster Provider
         Constraint::Length(2), // Video Player
         Constraint::Length(2), // Audio Preference
+        Constraint::Length(2), // Min Quality
         Constraint::Min(0),   // spacer
         Constraint::Length(1), // status bar
     ])
     .split(inner);
 
-    let settings: [(&str, String); 5] = [
+    let settings: [(&str, String); 6] = [
         (
             "Series Details",
             current_value_label(app, 0),
@@ -220,6 +221,10 @@ fn render_settings_modal(frame: &mut Frame, app: &mut App) {
         (
             "Audio Preference",
             current_value_label(app, 4),
+        ),
+        (
+            "Min Quality",
+            current_value_label(app, 5),
         ),
     ];
 
@@ -332,7 +337,7 @@ fn render_settings_modal(frame: &mut Frame, app: &mut App) {
             Span::raw(" close"),
         ])
     };
-    frame.render_widget(Paragraph::new(status), chunks[6]);
+    frame.render_widget(Paragraph::new(status), chunks[7]);
 }
 
 /// Get the display label for the current value of a setting row.
@@ -351,6 +356,13 @@ fn current_value_label(app: &App, row: usize) -> String {
         4 => match app.config.general.default_mode {
             crate::config::AudioMode::Sub => "Sub".to_string(),
             crate::config::AudioMode::Dub => "Dub".to_string(),
+        },
+        5 => match app.config.general.min_quality {
+            crate::config::MinQuality::Any => "Any".to_string(),
+            crate::config::MinQuality::P360 => "360p".to_string(),
+            crate::config::MinQuality::P480 => "480p".to_string(),
+            crate::config::MinQuality::P720 => "720p".to_string(),
+            crate::config::MinQuality::P1080 => "1080p".to_string(),
         },
         _ => String::new(),
     }
@@ -388,6 +400,13 @@ fn setting_options(row: usize) -> Vec<String> {
             opts
         }
         4 => vec!["Sub".to_string(), "Dub".to_string()],
+        5 => vec![
+            "Any".to_string(),
+            "360p".to_string(),
+            "480p".to_string(),
+            "720p".to_string(),
+            "1080p".to_string(),
+        ],
         _ => vec![],
     }
 }

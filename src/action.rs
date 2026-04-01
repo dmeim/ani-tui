@@ -40,6 +40,9 @@ pub enum Action {
 
     // Playback flow
     SelectEpisode(usize),
+    PrefetchStreams(String, String, String), // (show_id, episode_str, mode)
+    PrefetchAllStreams(String, Vec<String>, String), // (show_id, episode_strs, mode)
+    StreamsPrefetched(String, Vec<StreamUrl>), // (episode_str, streams)
     PlayLoading(String),
     StreamsResolved(Vec<StreamUrl>),
     Play,

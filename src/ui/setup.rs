@@ -35,6 +35,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         "Poster Provider",
         "Video Player",
         "Audio Preference",
+        "Minimum Quality",
     ];
     let step_display = format!(
         " Step {} of {}: {} ",
@@ -54,6 +55,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         2 => poster_provider_options(),
         3 => player_options(),
         4 => audio_mode_options(),
+        5 => min_quality_options(),
         _ => (vec![], "Setup complete!".to_string()),
     };
 
@@ -150,4 +152,15 @@ fn audio_mode_options() -> (Vec<(&'static str, &'static str)>, String) {
         ("Dub", "English dubbed audio"),
     ];
     (items, "Choose your default audio preference".to_string())
+}
+
+fn min_quality_options() -> (Vec<(&'static str, &'static str)>, String) {
+    let items = vec![
+        ("Any", "Play whatever is available"),
+        ("360p", "Low quality, saves bandwidth"),
+        ("480p", "Standard definition"),
+        ("720p", "HD quality"),
+        ("1080p", "Full HD (recommended)"),
+    ];
+    (items, "Minimum stream quality to play".to_string())
 }

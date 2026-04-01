@@ -5,10 +5,10 @@ use ratatui_image::picker::Picker;
 use ratatui_image::protocol::StatefulProtocol;
 
 use crate::action::Action;
-use crate::config::{AudioMode, Config, MetadataProvider, PlayerName};
+use crate::config::{AudioMode, Config, MetadataProvider, MinQuality, PlayerName};
 
 /// Number of setting rows in the settings modal.
-const SETTINGS_ROW_COUNT: usize = 5;
+const SETTINGS_ROW_COUNT: usize = 6;
 use crate::model::anime::{Anime, Episode};
 use crate::model::stream::StreamUrl;
 
@@ -62,6 +62,9 @@ pub struct App {
     pub now_playing_episode: Option<String>,
     pub play_error: Option<String>,
 
+    // Stream prefetch cache: episode_str -> resolved streams
+    pub stream_cache: HashMap<String, Vec<StreamUrl>>,
+
     // Setup wizard state
     pub setup_step: usize,
     pub setup_selected: usize,
@@ -106,6 +109,7 @@ impl App {
             mal_id: None,
             synopsis_requested: HashSet::new(),
             streams: Vec::new(),
+            stream_cache: HashMap::new(),
             now_playing_title: None,
             now_playing_episode: None,
             play_error: None,
@@ -159,6 +163,24 @@ impl App {
         Some(Action::FetchEpisodeSynopsis(mal_id, ep_int))
     }
 
+    fn maybe_prefetch_streams(&self) -> Option<Action> {
+        let anime = self.selected_anime.as_ref()?;
+        let ep = self.episodes.get(self.selected_episode)?;
+        let ep_str = if ep.number == ep.number.floor() {
+            format!("{}", ep.number as i32)
+        } else {
+            format!("{}", ep.number)
+        };
+        if self.stream_cache.contains_key(&ep_str) {
+            return None;
+        }
+        Some(Action::PrefetchStreams(
+            anime.id.clone(),
+            ep_str,
+            self.mode_str().to_string(),
+        ))
+    }
+
     pub fn mode_str(&self) -> &str {
         match self.config.general.default_mode {
             AudioMode::Sub => "sub",
@@ -209,10 +231,28 @@ impl App {
                 self.screen = Screen::Detail;
                 self.selected_episode = 0;
                 self.detail_scroll = 0;
+                self.stream_cache.clear();
                 None
             }
             Action::EpisodesLoaded(eps) => {
                 self.episodes = eps;
+                // Trigger background prefetch of stream URLs for all episodes
+                if let Some(anime) = &self.selected_anime {
+                    let ep_strs: Vec<String> = self.episodes.iter().map(|ep| {
+                        if ep.number == ep.number.floor() {
+                            format!("{}", ep.number as i32)
+                        } else {
+                            format!("{}", ep.number)
+                        }
+                    }).collect();
+                    if !ep_strs.is_empty() {
+                        return Some(Action::PrefetchAllStreams(
+                            anime.id.clone(),
+                            ep_strs,
+                            self.mode_str().to_string(),
+                        ));
+                    }
+                }
                 None
             }
             Action::SetMalId(id) => {
@@ -270,6 +310,10 @@ impl App {
                 if let Some(ep) = self.episodes.get(self.selected_episode) {
                     self.now_playing_episode = Some(format!("{}", ep.number));
                 }
+                None
+            }
+            Action::StreamsPrefetched(ep_str, streams) => {
+                self.stream_cache.insert(ep_str, streams);
                 None
             }
             Action::PlayError(e) => {
@@ -437,10 +481,12 @@ impl App {
                     self.selected_episode = (self.selected_episode + 1).min(self.episodes.len() - 1);
                 }
                 self.maybe_load_episode_synopsis()
+                    .or_else(|| self.maybe_prefetch_streams())
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 self.selected_episode = self.selected_episode.saturating_sub(1);
                 self.maybe_load_episode_synopsis()
+                    .or_else(|| self.maybe_prefetch_streams())
             }
             KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => {
                 if !self.episodes.is_empty() {
@@ -607,6 +653,7 @@ impl App {
             2 => 3, // poster provider: Jikan, AniList, AniDB
             3 => crate::player::detect_installed().len() + 1, // players + Custom
             4 => 2, // audio: Sub, Dub
+            5 => 5, // min quality: Any, 360p, 480p, 720p, 1080p
             _ => 1,
         }
     }
@@ -628,6 +675,7 @@ impl App {
                 AudioMode::Sub => 0,
                 AudioMode::Dub => 1,
             },
+            5 => min_quality_to_index(self.config.general.min_quality),
             _ => 0,
         }
     }
@@ -651,6 +699,7 @@ impl App {
                     _ => AudioMode::Dub,
                 };
             }
+            5 => self.config.general.min_quality = index_to_min_quality(option),
             _ => {}
         }
     }
@@ -667,6 +716,7 @@ impl App {
                 detected.len() + 1
             }
             4 => 2, // audio mode: sub, dub
+            5 => 5, // min quality: Any, 360p, 480p, 720p, 1080p
             _ => 1,
         };
 
@@ -683,7 +733,7 @@ impl App {
                 self.apply_setup_selection();
                 self.setup_step += 1;
                 self.setup_selected = 0;
-                if self.setup_step >= 5 {
+                if self.setup_step >= 6 {
                     // Setup complete
                     let _ = self.config.save();
                     self.screen = Screen::Search;
@@ -724,6 +774,9 @@ impl App {
                     _ => AudioMode::Dub,
                 };
             }
+            5 => {
+                self.config.general.min_quality = index_to_min_quality(self.setup_selected);
+            }
             _ => {}
         }
     }
@@ -762,5 +815,25 @@ fn index_to_provider(i: usize) -> MetadataProvider {
         0 => MetadataProvider::Jikan,
         1 => MetadataProvider::Anilist,
         _ => MetadataProvider::Anidb,
+    }
+}
+
+fn min_quality_to_index(q: MinQuality) -> usize {
+    match q {
+        MinQuality::Any => 0,
+        MinQuality::P360 => 1,
+        MinQuality::P480 => 2,
+        MinQuality::P720 => 3,
+        MinQuality::P1080 => 4,
+    }
+}
+
+fn index_to_min_quality(i: usize) -> MinQuality {
+    match i {
+        0 => MinQuality::Any,
+        1 => MinQuality::P360,
+        2 => MinQuality::P480,
+        3 => MinQuality::P720,
+        _ => MinQuality::P1080,
     }
 }
